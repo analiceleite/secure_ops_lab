@@ -1,10 +1,10 @@
 # PLAN 02 — Identidade e acesso
 
-**Estado:** plano proposto; nenhuma tarefa de implementação ou validação de identidade executada. Depende da revisão das decisões D01–D03 da [SPEC](SPEC.md).
+**Estado:** em implementação. D01–D03 e política de MFA/sessão aprovadas explicitamente pela autora em 24/10/2026; navegador/autenticador disponíveis e implementação autorizada. Resultados reais serão registrados por tarefa.
 
 ## 1. Execução e gates
 
-- Uma tarefa por vez, com resultado registrado antes de avançar. Esta solicitação cobre documentos, não implementação.
+- Uma tarefa por vez, com resultado registrado antes de avançar. A solicitação atual autoriza ajustar documentos e iniciar implementação; não autoriza ampliar escopo ou dispensar validações.
 - A SPEC é a fonte de comportamento, URLs, política e aceite. Não esconder mudanças de segurança neste plano.
 - Usar PowerShell e Docker Linux. Preferir os serviços e módulos já existentes; não pressupor shell/curl nas imagens de terceiros.
 - Consultar docs e `--help` da versão exata antes de escrever flags, import JSON, testes ou health checks. Não copiar comandos com `latest`/senhas de exemplo.
@@ -14,18 +14,22 @@
 
 ## 2. Estado inicial e arquivos previstos
 
-Inspeção documental: Compose contém somente `api`, `probe`, `api-test`; rede `service` interna e API sem porta/volume. Fundação concluída com 35 testes; nenhuma configuração de Keycloak/gateway presente.
+Na inspeção inicial, Compose continha somente `api`, `probe`, `api-test`, rede `service` interna e API sem porta/volume. Fundação concluída com 35 testes; naquele momento não havia configuração de Keycloak/gateway. A estrutura abaixo descreve o acréscimo atual.
 
-Estrutura indicativa, a confirmar sem criar arquivos executáveis nesta fase:
+Estrutura implementada nesta etapa (gateway ainda sem execução permanente):
 
 ```text
-compose.yaml                         # adicionar serviços, rede identity e volume
-.env.example                         # placeholders, nunca valores utilizáveis
+compose.yaml                         # preservar Fundação e seus comandos
+compose.identity.yaml                # overlay: serviços, rede identity e volume
+infra/identity/keycloak.env.example   # placeholders, nunca valores utilizáveis
+infra/identity/{config.test,check-discovery}.mjs # testes estáticos e cliente interno
 .gitignore / .dockerignore           # revisar exclusão de artefatos sensíveis
 infra/keycloak/realm-template.json   # configuração sanitizada, sem credenciais
 infra/oauth2-proxy/                  # configuração não secreta, formato confirmado
 docs/runbooks/identity-access.md     # bootstrap, TOTP, testes, logout e recuperação
 docs/evidence/02-identity-access.md   # criar ao executar, não fabricar evidência
+scripts/Initialize-Identity.ps1       # geração local sem sobrescrita, ACL restrita
+scripts/Test-IdentityDiscovery.ps1    # espera finita pelo discovery do host
 ```
 
 Se um template precisar de renderização com segredos, gerar apenas artefato local ignorado e montar somente o arquivo necessário em modo read-only. Não incluir `.env`, volume ou diretório com segredos no contexto de build. Não adicionar biblioteca de templates por conveniência.
@@ -34,49 +38,53 @@ Se um template precisar de renderização com segredos, gerar apenas artefato lo
 
 ### T01 — Revisar decisões e conferir viabilidade
 
-- [ ] Apresentar D01–D03 e registrar a decisão explícita da autora, inclusive limites e riscos do HTTP/cookie não seguro.
-- [ ] Confirmar navegador e autenticador disponíveis; definir passo manual e janela de acompanhamento da autora.
-- [ ] Reconfirmar Docker/Compose Linux e estado dos serviços, preservando dados existentes.
-- [ ] Verificar versões candidatas, imagens/manifests `linux/amd64`, digests e documentação do tag. Registrar eventual atualização deliberada na SPEC antes do uso.
-- [ ] Conferir opções do provider, nonce, cookie/session, logs, logout, hostname, fluxo OTP e persistência na versão exata.
-- [ ] Verificar portas 4180/8080 sem parar programas alheios; confirmar resolução de `app.localhost`/`keycloak.localhost` em loopback no navegador. Se indisponíveis, revisar URLs integralmente antes da implementação.
-- [ ] Fixar algoritmo/janela OTP suportados, limite de memória e prazos de inicialização/parada. Proposta: aguardar Keycloak até 120 s e gateway até 60 s; medir, não ampliar indefinidamente.
+- [x] Apresentar D01–D03 e registrar a decisão explícita da autora, inclusive limites e riscos do HTTP/cookie não seguro.
+- [x] Confirmar navegador e autenticador disponíveis; cadastro manual combinado para T04, com nova interação da autora nessa etapa.
+- [x] Reconfirmar Docker/Compose Linux e estado dos serviços, preservando dados existentes.
+- [x] Verificar versões candidatas, imagens/manifests `linux/amd64`, digests e documentação do tag. Digests fixados no overlay.
+- [x] Conferir opções do provider, nonce, cookie/session, logs, logout, hostname, fluxo OTP e persistência na versão exata. Runtime completo será validado nas etapas seguintes.
+- [x] Verificar portas 4180/8080 livres; Chrome alcançou ambos os nomes em loopback. Windows DNS retornou NXDOMAIN; nenhum hosts/DNS alterado.
+- [x] Fixar TOTP HmacSHA1, janela 1, 6 dígitos/30 s; Keycloak limitado a 1 GiB, espera 120 s e parada 30 s; gateway espera 60 s e parada 10 s. Medições reais parciais nas evidências.
 
 **Validação/gate:** IA-01 preparado e decisões registradas; sem decisão de transporte não avançar a T02. Consultar metadados e documentação não comprova autenticação.
 
-Comandos de preparação previstos (não executados por este plano): `docker version`, `docker compose version`, `Get-NetTCPConnection` com filtro de portas e inspeção de manifesto das tags aprovadas. Não usar dumps integrais de ambiente.
+Comandos de preparação executados: `docker version`, `docker compose version`, `Get-NetTCPConnection` com filtro de portas e inspeção de manifesto das tags aprovadas. Resultados nas evidências; sem dumps integrais de ambiente.
 
 ### T02 — Preparar configuração local e segredos
 
-- [ ] Escrever `.env.example` com placeholders e instrução de geração local; revisar ignores antes de gerar arquivos reais.
-- [ ] Definir senhas fictícias exclusivas, client secret e chave aleatória de cookie com tamanho/formato aceito pela versão; não imprimir valores em shell, logs, histórico ou documentação.
-- [ ] Definir como passar segredos aos processos com mecanismos realmente suportados; não presumir suporte `_FILE` de variáveis. Preferir arquivos locais estreitos/read-only quando compatíveis; documentar se algum segredo precisar de variável de ambiente e sua visibilidade ao administrador do Docker.
-- [ ] Criar template do realm/client/scopes/grupo e fluxo de MFA sem usuários com credenciais nem chaves; planejar bootstrap manual mínimo e atribuições explícitas.
-- [ ] Manter administradora de bootstrap separada e registrar como encerrar seu uso de bootstrap sem apagar contas/dados.
+- [x] Escrever exemplo não funcional e instrução de geração local; revisar ignores antes de gerar arquivos reais.
+- [x] Gerar senha de bootstrap, client secret e chave de cookie compatíveis, sem exibir valores. Senhas das contas serão definidas pela autora na T04, conforme procedimento de criação manual.
+- [x] Gateway lê arquivos read-only suportados pela versão; Keycloak usa ambiente para bootstrap/substituição do import, com visibilidade ao administrador Docker documentada. Pasta local com ACL restrita, ignorada no Git/build.
+- [x] Criar template sem usuários/senhas/OTP/chaves, com realm/client/scopes/grupo e fluxo dedicado; bootstrap manual documentado.
+- [x] Manter bootstrap separado e documentar passagem para conta administrativa permanente testada, sem remoção automática. Passagem efetiva depende da autora e permanece pendente.
 
 **Validação:** placeholders não iniciam o sistema como se fossem credenciais reais; arquivos sensíveis não entram no Git/build. Não coletar `compose config` completo com segredos substituídos.
 
 ### T03 — Adicionar Keycloak e validar emissor
 
-- [ ] Acrescentar somente Keycloak, rede `identity` e volume aprovados. Publicação somente em loopback, memória limitada, usuário não root, logs limitados e sem socket/privilégios extras.
-- [ ] Configurar hostname completo e alias interno da SPEC, sem backchannel dinâmico ou URLs divergentes.
-- [ ] Iniciar Keycloak com o modo de transporte aprovado e readiness finito, sem presumir `curl` dentro da imagem.
-- [ ] Criar/importar realm de forma idempotente: se já existir, não sobrescrever nem apagar volume. Registrar divergências e correções pontuais.
-- [ ] Validar discovery do navegador/host e, com cliente Node temporário na rede `identity`, os endpoints internos, issuer exato e acesso a JWKS/token endpoint conforme método esperado.
-- [ ] Conferir bindings efetivos, rede e mount estritamente necessário; porta de gestão não publicada.
+- [x] Acrescentar Keycloak, rede `identity` e volume aprovados. D04 autorizou bridge não interna após binding vazio com rede interna. Loopback, memória, UID não root, logs e ausência de socket/privilégios extras inspecionados.
+- [x] Configurar hostname completo e alias interno, sem backchannel dinâmico ou URLs divergentes.
+- [x] Iniciar Keycloak em HTTP/start-dev aprovado; espera finita pelo discovery do host, sem curl na imagem.
+- [x] Importar realm; preservar volume/realm após reinício. Corrigir pontualmente scopes profile/email ausentes via cliente administrativo temporário, sem exclusão/reset. Template corrigido para instalações novas; não há script administrativo permanente.
+- [x] Validar discovery do host, formulário OIDC no Chrome e cliente Node temporário interno: issuer/endpoints exatos, JWKS 200, token endpoint 401 sem secret. Cadastro/login continuam pendentes.
+- [x] Conferir bindings efetivos, rede/mounts, UID/CapEff/NoNewPrivs; porta de gestão não publicada.
 
-**Validação:** parte de IA-02/IA-03; confirmar que `keycloak.localhost:8080` resolve para o container dentro de `identity`, nunca para o próprio gateway. Falha de DNS/issuer é bloqueio, não motivo para pular validações.
+**Resultado:** T03 executada; DNS interno aponta para o container e o host alcança a porta loopback. IA-02/IA-03 ainda dependem do gateway real. Falha de publicação da proposta interna resolvida somente após aprovação explícita D04. Evidências registram limites, erros iniciais e correções.
 
-### T04 — Provisionar contas, claims e MFA
+### T04 — Provisionar contas, claims e MFA — parcial, aguardando testes negativos
 
 - [ ] Criar client/scopes/mappers conforme SPEC; conferir redirect URI exata, audience e desativação dos fluxos não utilizados.
-- [ ] Criar as duas contas fictícias, marcar e-mails locais como verificados e adicionar somente operadora ao grupo permitido; senhas entram apenas no ambiente local.
+- [x] Autora criou as duas contas fictícias; inspeção em 25/10 confirmou somente operadora no grupo permitido e presença de senha em ambas. E-mails fictícios marcados como verificados na correção autorizada, sem alterar credenciais/grupos/roles.
 - [ ] Vincular fluxo dedicado de senha+OTP obrigatórios, sem alternativa que ignore MFA; testar cadastro inicial em conta sem OTP.
-- [ ] Autora cadastrar TOTP manualmente para ambas as contas; não coletar QR/seed ou código como evidência.
+- [x] Autora confirmou em 25/10 o acesso da operadora após correção e o cadastro/acesso da visitante na interface de conta. Confirmação manual relatada em conversa, sem coleta de QR/seed/código; não é ainda teste do gateway.
 - [ ] Validar nova autenticação e erro de OTP; comprovar que senha sozinha não conclui o fluxo.
-- [ ] Conferir claims no ambiente local sem copiar token: evidência contém apenas nomes de claims, audiência esperada e grupo fictício sanitizado.
+- [ ] Conferir claims do login real sem copiar token. Preview administrativo de 25/10 confirmou subject/roles da interface de conta, email_verified, audience e separação de grupos, mas não substitui token do fluxo real.
+
+**Correção autorizada em 25/10:** após `Unexpected error` no `account-console`, restaurar scopes `basic`/`roles` ausentes com definições nativas da mesma versão, associar `basic/profile/email/roles` à interface de conta e `basic` ao gateway, sem conceder novas roles. Template passou a solicitar geração dos defaults nativos via `CreateDefaultClientScopes`, mantendo apenas `groups` customizado. OTP da operadora preservado; visitante ainda depende de cadastro. Testes e limites nas [evidências](../../evidence/02-identity-access.md), seção 7.
 
 **Validação:** IA-05 e preparação de IA-06/IA-07. Required action de cadastro e token preview, isoladamente, não comprovam MFA nem autorização no gateway. Sem autora/autenticador, registrar bloqueio e não avançar alegando sucesso.
+
+**Progresso manual posterior à correção:** autora confirmou que a página da operadora abriu e depois que o cadastro/acesso da visitante funcionou. Falta novo login da visitante e rejeição de OTP incorreto/ausente para ambas. T04 permanece parcial; detalhes na seção 8 das evidências.
 
 ### T05 — Adicionar e configurar o gateway
 
@@ -95,7 +103,8 @@ Comandos de preparação previstos (não executados por este plano): `docker ver
 - [ ] Injetar headers fictícios de usuário/grupo/autorização sem cookie: acesso continua bloqueado.
 - [ ] Operadora: senha sozinha não libera; OTP incorreto falha; OTP válido e grupo exato permitem 200/JSON original.
 - [ ] Visitante: concluir senha+OTP no Keycloak e observar negação no gateway. Separar evidência de autenticação do IdP da evidência HTTP 403, sem tratar mero erro de login como teste de autorização.
-- [ ] Em client/conta fictícios, testar grupos ausente/vazio/semelhante e audience incompatível, um ajuste por vez; registrar configuração anterior, testar com sessão nova e restaurar pontualmente. Confirmar teste positivo após restauração.
+- [ ] Em conta fictícia, testar grupos ausente/vazio/semelhante, um ajuste por vez; registrar/restaurar configuração e usar sessão nova. Confirmar controle positivo após restauração.
+- [ ] Definir/executar teste isolado do verificador de ID token do gateway com assinatura válida, audiência incompatível e controle positivo. Sem harness reproduzível, registrar IA-08 parcial/bloqueado. Erro de client secret/código não substitui esse teste; não modificar o emissor do gateway principal nem desligar verificações.
 - [ ] Cookie adulterado e callback sem state válido: não liberam; não armazenar cookie/código em relatório.
 - [ ] Conferir atributos dos cookies no navegador, incluindo cookie de CSRF e limite de tamanho; erro de cookie grande não se resolve desabilitando proteção ou adicionando Redis sem análise.
 
@@ -126,17 +135,17 @@ Comandos de preparação previstos (não executados por este plano): `docker ver
 
 ## 4. Comandos e recuperação previstos
 
-Os nomes dos serviços são propostas. Confirmar opções da versão e arquivos antes de executar; **nenhum comando desta seção foi executado para identidade**.
+Nomes implementados no overlay. T01–T03, regressão e `--config-test` executados; cadastro de contas/MFA e início permanente do gateway não executados. Procedimentos repetíveis no [runbook](../../runbooks/identity-access.md).
 
 ```powershell
-docker compose config --quiet
-docker compose up -d keycloak
+docker compose -f compose.yaml -f compose.identity.yaml config --quiet
+docker compose -f compose.yaml -f compose.identity.yaml up -d keycloak
 # Validar readiness e emissor antes de iniciar gateway.
-docker compose up -d api oauth2-proxy
+docker compose -f compose.yaml -f compose.identity.yaml up -d api oauth2-proxy
 # Inspecionar campos selecionados; testar navegador conforme T06/T07.
 docker compose --profile tools run --build --rm api-test
 docker compose --profile tools run --rm --no-deps probe
-docker compose stop oauth2-proxy keycloak api
+docker compose -f compose.yaml -f compose.identity.yaml stop oauth2-proxy keycloak api
 ```
 
 Não assumir `--wait` funcional antes de criar health checks reais para os serviços novos. Manter procedimentos de espera limitados e reproduzíveis no runbook; não instalar curl apenas para mascarar essa ausência.
@@ -150,10 +159,16 @@ Preencher quando tarefas forem autorizadas e executadas; não registrar aprovaç
 | Tarefa/critério | Data | Procedimento e responsável | Resultado real | Pendência/próxima ação |
 | --- | --- | --- | --- | --- |
 | Documentação inicial | 24/10/2026 | Inspeção dos arquivos e consulta de releases/docs oficiais | SPEC/PLAN propostos; runtime preservado | Revisar D01–D03 e iniciar T01 somente quando solicitado |
+| Revisão do desenho | 24/10/2026 | Decisões explícitas da autora em conversa | D01–D03, MFA a cada novo login, sessão de até 5 min e logout em duas camadas aprovados; navegador/autenticador disponíveis | Verificar viabilidade na T01; cadastro TOTP depende de participação manual |
+| T01/T02 | 24/10/2026 | Agente: imagens/help, portas, Chrome headless, inicializador e ACL | Preparação/geração local executadas; sem segredos exibidos; recusa de sobrescrita testada | Cadastro de contas e senhas pela autora na T04 |
+| T03/D04 | 24/10/2026 | Agente + aprovação explícita da autora para bridge normal | Keycloak pronto em loopback, issuer/DNS interno/JWKS verificados; volume preservado; scopes corrigidos pontualmente | Não alegar bloqueio de egress; gateway ainda sem runtime |
+| Preparação de T05 | 24/10/2026 | Agente: arquivos e container temporário `--config-test` | Configuração válida após corrigir cookie-secret-file para 32 bytes brutos | T05 não concluída: iniciar gateway só após gate manual T04 |
+| Regressão antecipada | 24/10/2026 | Agente: suites em containers e probe | 35 testes API + 9 verificações estáticas aprovados; API sem portas, só service, zero mounts; API parada novamente | Não substitui login/TOTP/autorização ou fechamento T08 |
+| T04 — correção da interface de conta | 25/10/2026 | Autora autorizou; agente corrigiu scopes via cliente administrativo temporário e template | Credenciais/grupos/roles preservados; e-mails fictícios verificados; 10 testes estáticos, import isolado e discovery aprovados; previews com claims esperados | Autora retestar operadora com OTP existente e cadastrar visitante; sucesso interativo ainda não comprovado, gateway não iniciado |
 
 ## 6. Checklist de conclusão
 
-- [ ] D01–D03 resolvidas, com risco/limites aprovados ou desenho revisado.
+- [x] D01–D04 resolvidas com risco/limites aprovados e desenho revisado.
 - [ ] IA-01 a IA-12 comprovados, incluindo navegador e TOTP real fictício.
 - [ ] Nenhuma porta da API publicada; interfaces novas somente loopback.
 - [ ] Autenticação da visitante bem-sucedida e autorização negada pelo gateway.

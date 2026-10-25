@@ -1,0 +1,98 @@
+# Usar junto de compose.yaml; nunca publicar a API para diagnosticar OIDC.
+x-identity-runtime: &identity-runtime
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: "no"
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  identity-check:
+    <<: *identity-runtime
+    image: secureops-api:0.1.0
+    pull_policy: never
+    profiles: [tools]
+    networks: [identity]
+    command: [node, /checks/check-discovery.mjs]
+    volumes:
+      - type: bind
+        source: ./infra/identity/check-discovery.mjs
+        target: /checks/check-discovery.mjs
+        read_only: true
+        bind:
+          create_host_path: false
+
+  keycloak:
+    <<: *identity-runtime
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
+    command: [start-dev, --import-realm]
+    env_file:
+      - ./.local/identity/keycloak.env
+    environment:
+      KC_DB: dev-file
+      KC_HOSTNAME: http://keycloak.localhost:8080
+      KC_HOSTNAME_STRICT: "true"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
+      KC_HTTP_HOST: 0.0.0.0
+      KC_HTTP_PORT: "8080"
+      KC_HTTP_ACCESS_LOG_ENABLED: "false"
+      KC_HEALTH_ENABLED: "false"
+      KC_METRICS_ENABLED: "false"
+      KC_LOG_LEVEL: info
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      identity:
+        aliases: [keycloak.localhost]
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - type: bind
+        source: ./infra/keycloak/realm-template.json
+        target: /opt/keycloak/data/import/secureops-lab-realm.json
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 1g
+    stop_grace_period: 30s
+
+  oauth2-proxy:
+    <<: *identity-runtime
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.5@sha256:8498b0d0ef0a7b29686414000a08aee467f02d0299c9ed1e006a8f33fc017916
+    command: [--config=/etc/oauth2-proxy/oauth2-proxy.cfg]
+    ports:
+      - "127.0.0.1:4180:4180"
+    networks: [identity, service]
+    volumes:
+      - type: bind
+        source: ./infra/oauth2-proxy/oauth2-proxy.cfg
+        target: /etc/oauth2-proxy/oauth2-proxy.cfg
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./.local/identity/client-secret
+        target: /run/secrets/client-secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./.local/identity/cookie-secret
+        target: /run/secrets/cookie-secret
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 128m
+    stop_grace_period: 10s
+
+networks:
+  identity:
+    driver: bridge
+    # Bridge normal aprovada após teste: internal:true suprimiu o binding no host.
+    # Isso NÃO bloqueia egress de Keycloak/gateway; service permanece interna.
+    internal: false
+
+volumes:
+  keycloak-data:

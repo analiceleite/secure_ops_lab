@@ -4,7 +4,7 @@ Laboratório pessoal de operações de TI e segurança para praticar controle de
 
 O projeto simula a operação de um serviço interno: somente usuários autorizados podem acessá-lo e, quando ele fica indisponível, um fluxo automatizado registra o incidente e acompanha sua recuperação.
 
-> **Status:** Fundação Local concluída. API, imagens, Compose, saúde, rede interna, ausência de portas publicadas e ciclo de parada/recuperação validados; 35 testes aprovados via Compose. Identidade, monitoramento e automação ainda não foram implementados. A arquitetura abaixo descreve o resultado pretendido.
+> **Status:** Fundação Local concluída. Identidade em implementação: autora confirmou cadastro/acesso positivo à interface de conta para operadora e visitante após correção dos scopes. Testes negativos e autorização no gateway pendentes. Última suite API: 35 aprovados em 24/10; 10 verificações estáticas de identidade aprovadas em 25/10. Gateway ainda não iniciado. Monitoramento e automação não implementados.
 
 ## Objetivo
 
@@ -47,7 +47,7 @@ flowchart TD
     automation --> incidents[Registro persistente local de incidentes]
 ```
 
-A Fundação Local usa a rede `service` interna, sem volumes nem portas publicadas. Redes e portas das próximas entregas serão definidas nas respectivas especificações. O acesso de usuário deverá passar pelo gateway; interfaces administrativas deverão ficar restritas ao computador local.
+A Fundação Local usa `service` interna, sem volumes nem portas da API. O overlay `compose.identity.yaml` acrescenta Keycloak, volume sensível e rede `identity` não interna, com publicação somente em loopback. Gateway está configurado, mas ainda não iniciado como serviço. O acesso de usuário deverá passar pelo gateway; interfaces administrativas continuam restritas ao computador local. Detalhes e exceções na [SPEC 02](docs/features/02-identity-access/SPEC.md).
 
 ### Tecnologias previstas
 
@@ -207,8 +207,8 @@ Para inspecionar bindings, usuário efetivo, redes e logs de saúde, siga o [run
 
 ## Próximos passos
 
-1. Revisar a [SPEC](docs/features/02-identity-access/SPEC.md) e o [PLAN](docs/features/02-identity-access/PLAN.md) propostos de Identidade e acesso, incluindo as decisões D01–D03 de transporte, nomes OIDC e persistência.
-2. Autorizar preparação/implementação de identidade somente após resolver essas decisões; a proposta de HTTP/cookies de desenvolvimento ainda não está aprovada.
+1. Seguir o [runbook de identidade](docs/runbooks/identity-access.md): testar novo login e negação de OTP incorreto/ausente para ambas em **http://keycloak.localhost:8080/realms/secureops-lab/account/**. Não usar a URL administrativa para login das contas de aplicação nem enviar segredos ao chat.
+2. Retomar T04–T08 do [PLAN](docs/features/02-identity-access/PLAN.md): iniciar gateway após o gate manual e validar autorização, sessão, logout e persistência. [SPEC](docs/features/02-identity-access/SPEC.md) e [evidências parciais](docs/evidence/02-identity-access.md) registram D01–D04 aprovadas e limites. Não considerar o login protegido como já validado.
 3. Seguir para monitoramento, automação e demonstração integrada conforme o [roadmap](docs/roadmap.md).
 
 ## Resultado pretendido

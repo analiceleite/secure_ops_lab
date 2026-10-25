@@ -1,6 +1,6 @@
 # Roadmap de implementação
 
-> Status: Fundação Local concluída em 24/10/2026, com 35 testes aprovados via Compose, inspeções de runtime e ciclo de parada/recuperação repetido. Identidade e acesso em especificação; demais entregas não iniciadas.
+> Status: Fundação Local concluída em 24/10/2026. Identidade em implementação: T01–T03 executadas; T04 parcial, com cadastro/acesso positivo à interface de conta confirmado pela autora para ambas após correção dos scopes em 25/10. Testes negativos pendentes; gateway só validado em configuração. Demais entregas não iniciadas.
 
 ## Como usar
 
@@ -28,12 +28,12 @@ A ordem sugerida de trabalho é 01 → 02 → 03 → 04 → 05. O monitoramento 
 | Entrega | Estado | Documentação prevista |
 | --- | --- | --- |
 | 01 — Fundação local | Concluída | `features/01-local-foundation/{SPEC,PLAN}.md` |
-| 02 — Identidade e acesso | Em especificação | `features/02-identity-access/{SPEC,PLAN}.md` |
+| 02 — Identidade e acesso | Em implementação | `features/02-identity-access/{SPEC,PLAN}.md` |
 | 03 — Monitoramento | Não iniciada | `features/03-monitoring/{SPEC,PLAN}.md` |
 | 04 — Automação de incidentes | Não iniciada | `features/04-incident-automation/{SPEC,PLAN}.md` |
 | 05 — Validação integrada e demonstração | Não iniciada | Checklist transversal, runbook e evidências |
 
-Os caminhos da tabela são relativos a `docs/`. A Fundação Local possui [SPEC](features/01-local-foundation/SPEC.md) e [PLAN](features/01-local-foundation/PLAN.md), com T01 a T06 concluídas e [evidências](evidence/01-local-foundation.md). Identidade e acesso possui [SPEC](features/02-identity-access/SPEC.md) e [PLAN](features/02-identity-access/PLAN.md) propostos, sem implementação. Próximo passo: revisar decisões D01–D03 e autorizar preparação T01; HTTP/cookies de desenvolvimento não estão aprovados implicitamente.
+Os caminhos da tabela são relativos a `docs/`. A Fundação possui [SPEC](features/01-local-foundation/SPEC.md), [PLAN](features/01-local-foundation/PLAN.md) e [evidências](evidence/01-local-foundation.md). Identidade possui [SPEC aprovada](features/02-identity-access/SPEC.md), [PLAN em execução](features/02-identity-access/PLAN.md), [evidências parciais](evidence/02-identity-access.md) e [runbook](runbooks/identity-access.md). Próximo passo: autora testar novo login e rejeição de OTP incorreto/ausente para ambas; só depois iniciar gateway/testes de autorização. D04 autorizou bridge não interna de identidade após falha de publicação; API continua sem portas e só em rede interna. Última suite API: 35 aprovados em 24/10; 10 verificações estáticas e import isolado do template aprovados em 25/10. Identidade não concluída.
 
 ## 01 — Fundação local
 

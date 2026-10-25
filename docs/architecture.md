@@ -1,6 +1,6 @@
 # Arquitetura do SecureOps Lab
 
-> Status: arquitetura-alvo; Fundação Local implementada e validada (API, imagens, Compose, rede interna, privilégios e parada/recuperação). Identidade, monitoramento e automação permanecem planejados. Este documento concentra decisões compartilhadas; detalhes executáveis ficam nas SPECS.
+> Status: Fundação Local concluída; Identidade em implementação (Keycloak e configuração do gateway, cadastro TOTP/autorização pendentes). Monitoramento e automação planejados. Este documento concentra decisões compartilhadas; detalhes executáveis ficam nas SPECS.
 
 ## 1. Restrições
 
@@ -47,7 +47,7 @@ Fluxo esperado:
 
 Contas previstas: uma operadora autorizada e uma visitante autenticável, mas sem autorização. Ambas devem permitir comprovar a separação entre identidade e permissão.
 
-A [SPEC 02 proposta](features/02-identity-access/SPEC.md) detalha realm, client, redirects exatos, claims, política de autorização, cookies, logout e cadastro TOTP; aguarda revisão, não é configuração aplicada. Não usar redirects amplos ou ignorar validações de emissor para contornar problemas de rede.
+A [SPEC 02](features/02-identity-access/SPEC.md) detalha realm, client, redirects, claims, autorização, cookies, logout e cadastro TOTP. Desenho aprovado; Keycloak executado, mas gateway só passou em teste de configuração. Não usar redirects amplos ou ignorar validações de emissor para contornar problemas de rede.
 
 ### Endereçamento OIDC
 
@@ -65,7 +65,7 @@ Topologia lógica proposta:
 | Serviço | Gateway, API e monitor | Encaminhamento e health check |
 | Eventos | Monitor e n8n | Entrega de webhooks |
 
-As redes de identidade e eventos e os participantes futuros são planejados, não uma política de firewall validada. Na Fundação Local, a rede `service` bridge com `internal: true` foi inspecionada e o acesso probe → API por DNS foi validado. Novos fluxos devem ser revisados antes de alterar essa rede; não foi realizado teste de egress contra sistemas externos.
+A rede `identity` foi implementada como bridge **não interna**, após aprovação explícita D04: a tentativa interna suprimiu os bindings no host neste Docker. Somente os serviços de identidade ganham rota de saída; isso não comprova bloqueio de egress. `service` permanece `internal: true`, API somente nela e sem porta. Rede de eventos/participantes futuros continuam planejados. Não foi realizado teste de egress contra sistemas externos. Configuração e evidências ficam na [SPEC 02](features/02-identity-access/SPEC.md) e seu [registro](evidence/02-identity-access.md).
 
 - A API não publica porta no host.
 - Gateway, Keycloak e interfaces administrativas necessárias publicam portas somente em loopback.
@@ -77,7 +77,7 @@ A máquina hospedeira, seus administradores e o daemon Docker fazem parte da bas
 
 ## 5. Transporte local
 
-HTTPS local versus exceções HTTP de desenvolvimento permanece pendente de aprovação. A [SPEC 02](features/02-identity-access/SPEC.md) propõe HTTP estritamente local, cookies sem Secure e modo de desenvolvimento, com riscos, limites e testes explícitos. Essa proposta não amplia automaticamente a exceção de HTTP da Fundação, que não transportava credenciais.
+HTTP estritamente local, cookies sem Secure onde necessário e modo de desenvolvimento foram aprovados explicitamente na [SPEC 02](features/02-identity-access/SPEC.md), com riscos, limites e validações pendentes de navegador. A exceção inclui credenciais fictícias e cookies do Keycloak/gateway, sem desligar validações OIDC. A política SSL do realm continua `external`; qualquer redução exige nova aprovação específica.
 
 A solução deve registrar URLs, confiança de certificados, comportamento dos cookies e eventuais exceções. Caso HTTP seja escolhido para a PoC, não apresentar o tráfego como cifrado, não usar credenciais reais e documentar o limite local. Não espalhar desativações de TLS ou de verificação de tokens como atalho.
 
@@ -120,7 +120,7 @@ Volumes não substituem backups e não garantem integridade ou auditoria imutáv
 | Decisão | Resolver em |
 | --- | --- |
 | Fundação: versões, porta interna e rede definidas; execução validada e snapshot de consumo registrado | [SPEC 01 — Fundação local](features/01-local-foundation/SPEC.md) e [evidências](evidence/01-local-foundation.md) |
-| Transporte, nomes OIDC e persistência de desenvolvimento propostos; D01–D03 aguardam revisão | [SPEC 02 — Identidade e acesso](features/02-identity-access/SPEC.md) |
+| D01–D04 aprovadas: transporte local, nomes OIDC, dev-file e rede de identidade; validação de login/MFA pendente | [SPEC 02 — Identidade e acesso](features/02-identity-access/SPEC.md) |
 | Intervalos, retries e payload real de notificação | SPEC 03 — Monitoramento |
 | Autenticação do webhook, armazenamento e consistência dos eventos | SPEC 04 — Automação de incidentes |
 

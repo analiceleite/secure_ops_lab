@@ -1,0 +1,104 @@
+{
+  "realm": "secureops-lab",
+  "displayName": "SecureOps Lab — contas fictícias",
+  "enabled": true,
+  "attributes": {"CreateDefaultClientScopes": "true"},
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": false,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 600,
+  "ssoSessionMaxLifespan": 900,
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "otpPolicyLookAheadWindow": 1,
+  "groups": [{"name": "secureops-operators"}],
+  "authenticationFlows": [
+    {
+      "id": "b80b7bae-f804-4a4b-b39f-91f532f2860e",
+      "alias": "secureops-browser-mfa",
+      "description": "Senha e TOTP obrigatórios para cada novo login da aplicação; sem Cookie/SSO alternativo",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": true
+        }
+      ]
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "groups",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {
+          "name": "groups-full-path",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "secureops-gateway",
+      "name": "Gateway local do SecureOps Lab",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${SECUREOPS_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://app.localhost:4180/oauth2/callback"],
+      "webOrigins": [],
+      "fullScopeAllowed": false,
+      "defaultClientScopes": ["basic", "profile", "email"],
+      "optionalClientScopes": ["groups"],
+      "attributes": {"pkce.code.challenge.method": "S256"},
+      "authenticationFlowBindingOverrides": {"browser": "b80b7bae-f804-4a4b-b39f-91f532f2860e"},
+      "protocolMappers": [
+        {
+          "name": "access-token-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "secureops-gateway",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

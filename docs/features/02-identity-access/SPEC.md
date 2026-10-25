@@ -1,6 +1,6 @@
 # SPEC 02 — Identidade e acesso
 
-**Estado:** em especificação; proposta para revisão. Nenhum serviço de identidade implementado ou teste de autenticação executado. As exceções abaixo **não estão aprovadas** por terem sido descritas neste documento.
+**Estado:** em implementação. D01–D03 e a política de MFA/sessão aprovadas explicitamente pela autora na revisão em 24/10/2026; implementação autorizada na sequência. Aprovação do desenho não comprova os critérios de aceite.
 
 Referências: [README](../../../README.md), [arquitetura](../../architecture.md), [roadmap](../../roadmap.md) e [Fundação Local](../01-local-foundation/SPEC.md). Execução: [PLAN](PLAN.md).
 
@@ -8,7 +8,7 @@ Referências: [README](../../../README.md), [arquitetura](../../architecture.md)
 
 Proteger a API fictícia por um gateway OIDC. Demonstrar no navegador que senha e TOTP autenticam uma identidade, enquanto a associação a um grupo específico autoriza o acesso. Uma visitante deve conseguir se autenticar com MFA, mas receber negação do gateway.
 
-Somente a Fundação Local está implementada: `api`, `probe`, `api-test` e rede `service` interna em `compose.yaml`. A API não interpreta tokens e continuará sem porta publicada. Esta entrega acrescentará a proteção no gateway, não na aplicação.
+A Fundação Local está concluída. A implementação de identidade acrescentou Keycloak e os arquivos do gateway no overlay, mas os testes de login/TOTP/autorização permanecem pendentes. A API não interpreta tokens e continua sem porta publicada; o controle será no gateway, não na aplicação. Estado real: [evidências parciais](../../evidence/02-identity-access.md).
 
 ## 2. Escopo e limites
 
@@ -27,13 +27,14 @@ O controle de usuário é o gateway. Containers deliberadamente conectados à re
 
 ## 3. Decisões propostas e gate de aprovação
 
-Antes de implementar, revisar explicitamente as decisões D01 a D03. Se forem rejeitadas, atualizar esta SPEC e o PLAN; não trocar de topologia ou desabilitar validações silenciosamente.
+D01–D03 aprovadas pela autora com os limites abaixo. Alterações futuras exigem nova revisão; não trocar de topologia ou desabilitar validações silenciosamente.
 
 | ID | Proposta | Justificativa e condição |
 | --- | --- | --- |
-| D01 | HTTP local, Keycloak `start-dev`, cookies do gateway sem `Secure` | Evitar CA/certificados e ferramentas adicionais nesta PoC. Exceção limitada descrita na seção 5; exige aprovação explícita antes de aplicar |
-| D02 | Nomes `app.localhost` e `keycloak.localhost`, mesma URL do emissor por dentro e por fora | Separar hosts de cookies e usar alias DNS do Compose. Resolução em loopback no navegador precisa ser verificada; não pressupor suporte uniforme no Windows |
-| D03 | Keycloak com banco embarcado `dev-file` em volume nomeado | Um único processo local e sem necessidade de banco adicional. Estado sensível persiste; não é configuração de produção, backup ou alta disponibilidade |
+| D01 | **Aprovada:** HTTP local, Keycloak `start-dev`, cookies sem `Secure` onde necessário | Evitar CA/certificados nesta PoC; somente contas fictícias, loopback e redes do lab. Exceção limitada pela seção 5 |
+| D02 | **Aprovada, condicionada a testes:** `app.localhost` e `keycloak.localhost`, mesma URL do emissor por dentro e por fora | Separar hosts de cookies e usar alias DNS do Compose. Falha de resolução exige revisão, não alteração automática de hosts/DNS |
+| D03 | **Aprovada:** Keycloak com banco embarcado `dev-file` em volume nomeado | Um único processo local. Volume sensível; não é produção, backup ou alta disponibilidade |
+| D04 | **Aprovada na execução:** `identity` como bridge não interna | `internal: true` suprimiu o binding no Docker local. Somente Keycloak/gateway têm rota de saída; API continua apenas em `service` interna. Não comprova bloqueio de egress |
 
 Alternativa a D01: HTTPS local com CA confiável no navegador e no gateway, mantendo validação de certificados. Exige revisar URLs, cookies, distribuição de confiança e passos manuais antes de implementar; não é uma segunda configuração incluída nesta entrega. Não usar certificados ignorados pelo cliente como alternativa.
 
@@ -45,24 +46,26 @@ Alternativa a D01: HTTPS local com CA confiável no navegador e no gateway, mant
 | OAuth2 Proxy | `quay.io/oauth2-proxy/oauth2-proxy:v7.15.5` |
 | API e ferramentas Node | Manter as versões da SPEC 01 |
 
-Releases oficiais e documentação foram consultadas em 24/10/2026. Tags, manifesto `linux/amd64`, digest, opções e compatibilidade conjunta ainda deverão ser conferidos na preparação. Não houve pull ou execução nesta etapa documental; release existente não comprova imagem disponível nem segurança da combinação. Não usar `latest`.
+Releases/documentação, manifesto `linux/amd64` e opções das imagens conferidos em 24/10/2026. Imagens baixadas e digests fixados no overlay; identificadores e resultados nas [evidências](../../evidence/02-identity-access.md). Keycloak executado e gateway aprovado apenas em `--config-test`: compatibilidade do fluxo OIDC completo ainda não comprovada. Não usar `latest`.
 
 ## 4. Topologia e URLs
 
 ### Serviços, redes e persistência
 
+Manter a Fundação em `compose.yaml` e adicionar a identidade em `compose.identity.yaml`, combinados com `docker compose -f compose.yaml -f compose.identity.yaml`. Isso evita exigir segredos de identidade nos comandos existentes da Fundação, sem mudar as fronteiras de rede.
+
 | Serviço | Redes | Publicação proposta | Dados |
 | --- | --- | --- | --- |
 | `api` | Somente `service`, que permanece `internal: true` | Nenhuma | Sem volume |
 | `oauth2-proxy` | `identity` e `service` | `127.0.0.1:4180:4180` | Sessão em cookie; sem Redis/volume |
-| `keycloak` | Somente `identity`, proposta `internal: true` | `127.0.0.1:8080:8080` | Volume nomeado `keycloak-data` em `/opt/keycloak/data` |
+| `keycloak` | Somente `identity`, bridge não interna (D04) | `127.0.0.1:8080:8080` | Volume nomeado `keycloak-data` em `/opt/keycloak/data` |
 | `probe` / `api-test` | Manter configuração da Fundação | Nenhuma | Sem alteração |
 
-Confirmar publicação loopback funcionando com rede interna na versão local do Docker. Não conectar a API a outra rede para resolver falhas de identidade. Keycloak não participa de `service`; gateway não recebe privilégios de Docker. Não publicar porta de gestão/saúde do Keycloak, nem porta adicional para testes.
+A tentativa inicial de `identity` interna falhou: Keycloak iniciou, mas bindings observados ficaram vazios e o host recebeu conexão recusada. D04 autoriza bridge não interna apenas para `identity`, com nova validação de loopback. Não conectar a API a outra rede. Keycloak não participa de `service`; gateway não recebe privilégios de Docker. Não publicar porta de gestão/saúde do Keycloak, nem porta adicional para testes.
 
 `keycloak.localhost` será alias de `keycloak` na rede `identity`. O gateway deve resolvê-lo para o container, não para seu próprio loopback. No navegador, os dois nomes devem resolver somente para loopback local. Validar também tentativas de IPv6: não criar listener em `[::]` por conveniência. Se a resolução falhar, registrar bloqueio; edição de `hosts`/DNS do sistema exige autorização específica.
 
-### URLs canônicas — condicionadas à aprovação de D01/D02
+### URLs canônicas — D01/D02 aprovadas, viabilidade ainda a validar
 
 | Uso | Valor |
 | --- | --- |
@@ -84,11 +87,12 @@ Não usar `localhost:8080` como emissor no gateway, sobrescrever endpoints ao ac
 
 Esta proposta **amplia** a exceção de HTTP da Fundação: agora transitariam senhas fictícias, códigos TOTP, códigos OIDC e cookies. Ela não é coberta automaticamente pela aprovação anterior de HTTP para respostas sem credenciais.
 
-Limites obrigatórios caso aprovada:
+Limites obrigatórios da exceção aprovada:
 
 - Apenas computador pessoal, interfaces publicadas em `127.0.0.1`, redes do laboratório e contas exclusivas fictícias. Nenhum acesso por LAN, túnel ou sistema externo.
 - Gateway com `cookie_secure=false` somente por HTTP; manter `HttpOnly=true`, `SameSite=Lax`, host-only, sem `Domain` compartilhado, path `/`. Não usar prefixos `__Secure-`/`__Host-` em cookie não seguro. Nome proposto: `secureops_session`.
 - Keycloak em `start-dev`, hostname explícito e persistência dev-file. Se o realm exigir ajuste de política SSL para aceitar esse fluxo local, registrar o valor e a necessidade; somente após aprovação da exceção, nunca como correção implícita. Não alterar realm `master` ou outro sistema para contornar erro.
+- A exceção abrange também os cookies emitidos pelo Keycloak por HTTP, cujos atributos reais serão inspecionados no navegador. Não prometer `Secure` em transporte não cifrado. A política SSL inicial do realm será `external` (padrão), sem alterá-la preventivamente. Se ela bloquear o tráfego interno ou o login, registrar bloqueio e solicitar aprovação do valor alternativo específico antes de aplicá-lo.
 - Sem `ssl-insecure-skip-verify`, `insecure-oidc-skip-issuer-verification`, bypass de assinatura/audience, e-mail não verificado ou nonce. A proposta é HTTP explícito, não ignorar falhas de TLS/OIDC.
 - Validar configuração resolvida **e bindings observados**, atributos dos cookies no navegador e comportamento de login/negação antes de aceitar a exceção como funcional.
 
@@ -110,8 +114,11 @@ Client confidencial com autenticação de client habilitada, Authorization Code 
 ### Claims e autorização
 
 - Escopos explícitos: `openid profile email groups`; não pedir `offline_access`.
+- O import deve preservar os scopes nativos do Keycloak, inclusive os necessários ao `account-console`, usando `attributes.CreateDefaultClientScopes="true"` (conferido no código da versão 26.8.1). Definir somente `groups` como scope customizado; uma lista parcial de scopes sem esse atributo suprime os defaults e pode quebrar a interface de conta após autenticação.
+- O gateway tem `basic`, `profile` e `email` como scopes padrão do client e `groups` opcional solicitado explicitamente. `basic` fornece os claims básicos, inclusive `sub` no access token; não é uma permissão adicional. O `account-console` precisa de claims de roles para consultar a própria conta. Restaurar seus scopes não atribui roles administrativas aos usuários nem muda a autorização do gateway por grupo.
 - Mapper Group Membership com claim `groups`, caminho completo e presença no ID token e no acesso/userinfo conforme suporte necessário do provider. Anexar client scope `groups` e solicitá-lo explicitamente.
-- Audience mapper inclui `secureops-gateway` no ID token e access token. Validar `aud` contra o client; não usar audiência genérica para fazer login passar.
+- O **ID token** deve ter `aud` contendo `secureops-gateway`, atribuído pelo Keycloak ao client que iniciou o login. O gateway valida esse token (assinatura, issuer, audience, expiração e nonce). Não adicionar audiência extra aceita nem claim alternativo para contornar validação.
+- Um audience mapper pode acrescentar `secureops-gateway` ao **access token**, sem alegar que isso comprova validação de audiência desse token pelo gateway. A API não recebe nem valida access tokens; este não é um desenho de resource server.
 - Gateway usa provider `keycloak-oidc`, claim `groups` e **somente** `allowed-group=/secureops-operators`. Domínio de e-mail permitido: `lab.example`, não `*`; e-mail sozinho não autoriza.
 - Claim ausente, vazia ou grupo semelhante (`/secureops-operators-extra`) não permite acesso. Não combinar roles/grupos por regras ambíguas nesta entrega.
 - Grupo e e-mail são obtidos do fluxo validado, não de `X-Forwarded-*`, parâmetro de URL ou header enviado pelo usuário.
@@ -124,7 +131,9 @@ Exigir senha + TOTP para **ambas** as contas no fluxo do client. Proposta: fluxo
 
 `CONFIGURE_TOTP` no primeiro acesso é uma etapa de cadastro, não prova suficiente de exigência de MFA. A conta não deve chegar à API antes de concluir o cadastro e apresentar código válido. Em autenticação nova, ausência/código incorreto deve impedir emissão de sessão utilizável pelo gateway. Sessão já válida no gateway não pede OTP a cada requisição.
 
-Política proposta: TOTP de 6 dígitos, período 30 s, algoritmo suportado pelo aplicativo autenticador e pela política padrão da versão; registrar algoritmo e janela efetivamente escolhidos na preparação. Não ampliar tolerância para contornar relógio incorreto. Manter relógios sincronizados e documentar erros de horário.
+Política definida no template: TOTP de 6 dígitos, período 30 s, `HmacSHA1`, janela de tolerância 1. Confirmar compatibilidade no cadastro manual com o autenticador da autora. Não ampliar tolerância para contornar relógio incorreto. Manter relógios sincronizados e documentar erros de horário.
+
+Política aprovada: cada novo login OIDC **da aplicação** exige senha+TOTP, mesmo havendo sessão anterior do Keycloak. O override do client usa fluxo sem autenticador Cookie; não mudar globalmente o fluxo administrativo/de conta do Keycloak para conseguir esse efeito. Após expirar o cookie do gateway, o novo login deve repetir ambos os fatores. O cadastro inicial valida o código da nova credencial antes de concluir; não basta marcar a required action como concluída.
 
 Cadastro será manual pela autora, com autenticador gratuito preferencialmente local/offline, sem serviço externo obrigatório. Nunca capturar/commitar QR code, semente, código TOTP ou senha. Fluxo manual pendente mantém a validação dependente correspondente pendente, não autoriza desabilitar MFA. Não considerar teste automatizado de senha como substituto do login TOTP no navegador.
 
@@ -167,11 +176,11 @@ Falhas devem negar acesso: Keycloak indisponível impede novo login (sessão gat
 
 ## 10. Critérios de aceite
 
-Todos permanecem **não executados** nesta fase documental.
+Resultados parciais estão nas [evidências](../../evidence/02-identity-access.md); nenhum resultado esperado na tabela deve ser confundido com teste executado. Login/MFA/autorização ainda pendentes.
 
 | ID | Critério | Evidência exigida |
 | --- | --- | --- |
-| IA-01 | Preparação e exceções revisadas | Aprovação explícita de D01–D03 ou SPEC revisada; versões/digests/opções e portas conferidos |
+| IA-01 | Preparação e exceções revisadas | Aprovação explícita de D01–D04; versões/digests/opções e portas conferidos |
 | IA-02 | Endereçamento OIDC coerente | Resolução no host/navegador e gateway; discovery com issuer exato e endpoints acessíveis; nenhuma verificação desligada |
 | IA-03 | Exposição mínima preservada | Compose sanitizado + bindings observados em loopback somente; API sem publicação e somente em `service`; usuário e mounts inspecionados |
 | IA-04 | Sem sessão não chega à aplicação | `/` e `/health` pelo gateway não retornam JSON da API; `/oauth2/auth` retorna 401; headers de identidade forjados não liberam |
@@ -184,17 +193,17 @@ Todos permanecem **não executados** nesta fase documental.
 | IA-11 | Persistência e falhas previsíveis | Reinício sem remover volume preserva configuração/MFA; Keycloak parado bloqueia login novo; API parada não produz sucesso e recuperação restaura acesso |
 | IA-12 | Regressão e documentação | 35 testes da Fundação e probe interno aprovados, sem abrir porta; procedimentos repetidos e evidências sem segredos |
 
-Testes de audience/grupo usam apenas o client e contas fictícios, com registro/restauração pontual da configuração; nunca desabilitam a verificação para passar. Um bearer token rejeitado em um modo que não aceita bearer não comprova validação criptográfica; não fazer essa alegação.
+Testes de grupo usam apenas contas fictícias e restauração pontual. Para audiência, definir um teste isolado do verificador da versão do gateway com ID token de assinatura válida e audiência divergente, com controle positivo equivalente; não apontar o gateway principal para um IdP falso. Se o harness oficial/local não estiver disponível, IA-08 permanece parcial/bloqueado até uma estratégia reproduzível ser aprovada. Trocar client ID/secret e obter erro na troca do código **não** comprova rejeição por audiência. Remover audience mapper do access token também não testa a audiência do ID token. Um bearer token rejeitado num modo que não aceita bearer não comprova validação criptográfica.
 
 ## 11. Evidências e saída
 
-Criar `docs/evidence/02-identity-access.md` somente quando houver execução. Registrar ID, data/fuso, versão, procedimento, resultado observado e limitações. Testes de containers não substituem cadastro TOTP, atributos de cookies e login no navegador. Capturas são opcionais; nunca incluir telas de QR/OTP, cookies ou URLs com `code`, state, session IDs e tokens.
+Registrar em [evidências](../../evidence/02-identity-access.md) somente o que foi executado, com ID, data/fuso, versão, procedimento, resultado observado e limitações. Testes de containers não substituem cadastro TOTP, atributos de cookies e login no navegador. Capturas são opcionais; nunca incluir telas de QR/OTP, cookies ou URLs com `code`, state, session IDs e tokens.
 
 Concluir somente após IA-01 a IA-12 verificados. Falta de navegador/autenticador, decisões não aprovadas ou impossibilidade de validar um cenário mantém a tarefa correspondente pendente/bloqueada. Não preencher resultados esperados como se tivessem sido observados.
 
 ## 12. Fontes consultadas e pendências
 
-Consultas documentais, sem validação de runtime:
+Fontes de configuração (resultados de runtime separados nas evidências):
 
 - [Release Keycloak 26.8.1](https://github.com/keycloak/keycloak/releases/tag/26.8.1), [hostname v2](https://www.keycloak.org/server/hostname), [containers e dev mode](https://www.keycloak.org/server/containers), [administração e fluxos](https://www.keycloak.org/docs/latest/server_admin/index.html).
 - [Release OAuth2 Proxy v7.15.5](https://github.com/oauth2-proxy/oauth2-proxy/releases/tag/v7.15.5), [provider Keycloak OIDC](https://oauth2-proxy.github.io/oauth2-proxy/configuration/providers/keycloak_oidc/).
@@ -202,4 +211,4 @@ Consultas documentais, sem validação de runtime:
 
 Documentação online pode mudar. Atenção: a documentação consultada indica default permissivo para `insecure-oidc-skip-nonce`; na implementação, configurar explicitamente a **verificação de nonce habilitada** e conferir na versão, sem confiar no default.
 
-Pendências de revisão: aprovar/rejeitar D01–D03, confirmar nomes/portas no ambiente e disponibilidade de autenticador/navegador. Até lá, estado **em especificação**, não pronta para implementar.
+Decisões D01–D04, política de sessão/MFA e disponibilidade de navegador/autenticador confirmadas pela autora. T01–T03 executadas; T04 parcial: autora confirmou cadastro/acesso positivo à interface de conta para ambas após correção dos scopes em 25/10. Testes negativos e login subsequente da visitante pendentes. Gateway tem configuração validada, mas runtime, cookies, teste de audiência isolado e autorização continuam pendentes. Nenhum desses resultados é presumido pela aprovação.
