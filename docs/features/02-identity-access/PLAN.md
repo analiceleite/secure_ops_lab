@@ -1,6 +1,6 @@
 # PLAN 02 — Identidade e acesso
 
-**Estado:** em implementação. D01–D03 e política de MFA/sessão aprovadas explicitamente pela autora em 24/10/2026; navegador/autenticador disponíveis e implementação autorizada. Resultados reais serão registrados por tarefa.
+**Estado:** concluída em 25/10/2026. IA-01–IA-12 verificados por testes técnicos e confirmações manuais da autora, diferenciados na [matriz final de evidências](../../evidence/02-identity-access.md#19-confirmação-final-e-fechamento--25102026). D01–D04 e limites locais preservados. Registros de execução anteriores são históricos.
 
 ## 1. Execução e gates
 
@@ -16,7 +16,7 @@
 
 Na inspeção inicial, Compose continha somente `api`, `probe`, `api-test`, rede `service` interna e API sem porta/volume. Fundação concluída com 35 testes; naquele momento não havia configuração de Keycloak/gateway. A estrutura abaixo descreve o acréscimo atual.
 
-Estrutura implementada nesta etapa (gateway ainda sem execução permanente):
+Estrutura implementada nesta etapa (API/Keycloak/gateway executando no fechamento):
 
 ```text
 compose.yaml                         # preservar Fundação e seus comandos
@@ -30,6 +30,8 @@ docs/runbooks/identity-access.md     # bootstrap, TOTP, testes, logout e recuper
 docs/evidence/02-identity-access.md   # criar ao executar, não fabricar evidência
 scripts/Initialize-Identity.ps1       # geração local sem sobrescrita, ACL restrita
 scripts/Test-IdentityDiscovery.ps1    # espera finita pelo discovery do host
+scripts/Test-IdentityVerifier.ps1     # proxy real em rede interna temporária
+infra/identity/verify-isolated.mjs    # emissor/upstream de fixture e cenários negativos
 ```
 
 Se um template precisar de renderização com segredos, gerar apenas artefato local ignorado e montar somente o arquivo necessário em modo read-only. Não incluir `.env`, volume ou diretório com segredos no contexto de build. Não adicionar biblioteca de templates por conveniência.
@@ -71,71 +73,78 @@ Comandos de preparação executados: `docker version`, `docker compose version`,
 
 **Resultado:** T03 executada; DNS interno aponta para o container e o host alcança a porta loopback. IA-02/IA-03 ainda dependem do gateway real. Falha de publicação da proposta interna resolvida somente após aprovação explícita D04. Evidências registram limites, erros iniciais e correções.
 
-### T04 — Provisionar contas, claims e MFA — parcial, aguardando testes negativos
+### T04 — Provisionar contas, claims e MFA — executada
 
-- [ ] Criar client/scopes/mappers conforme SPEC; conferir redirect URI exata, audience e desativação dos fluxos não utilizados.
+- [x] Client/scopes/mappers implementados e inspecionados; callback exato, fluxos extras desabilitados, fluxo real validado pelo gateway e audience negativa exercitada separadamente no harness.
 - [x] Autora criou as duas contas fictícias; inspeção em 25/10 confirmou somente operadora no grupo permitido e presença de senha em ambas. E-mails fictícios marcados como verificados na correção autorizada, sem alterar credenciais/grupos/roles.
-- [ ] Vincular fluxo dedicado de senha+OTP obrigatórios, sem alternativa que ignore MFA; testar cadastro inicial em conta sem OTP.
+- [x] Fluxo dedicado vinculado e inspecionado no realm em uso com senha/OTP REQUIRED e sem Cookie; cadastro inicial e logins das duas contas confirmados manualmente pela autora.
 - [x] Autora confirmou em 25/10 o acesso da operadora após correção e o cadastro/acesso da visitante na interface de conta. Confirmação manual relatada em conversa, sem coleta de QR/seed/código; não é ainda teste do gateway.
-- [ ] Validar nova autenticação e erro de OTP; comprovar que senha sozinha não conclui o fluxo.
-- [ ] Conferir claims do login real sem copiar token. Preview administrativo de 25/10 confirmou subject/roles da interface de conta, email_verified, audience e separação de grupos, mas não substitui token do fluxo real.
+- [x] Autora relatou em 25/10 sucesso do procedimento solicitado para ambas na interface de conta: nova autenticação, senha sem OTP não conclui, código incorreto rejeitado e código válido aceito. Não é validação do client da aplicação/gateway.
+- [x] Preview administrativo e inspeção do mapper combinados ao fluxo real do gateway; autora confirmou grupo `/secureops-operators` em `/oauth2/userinfo` após login. Não foi exportado/decodificado token real; audience negativa validada no harness, distinta do preview.
 
-**Correção autorizada em 25/10:** após `Unexpected error` no `account-console`, restaurar scopes `basic`/`roles` ausentes com definições nativas da mesma versão, associar `basic/profile/email/roles` à interface de conta e `basic` ao gateway, sem conceder novas roles. Template passou a solicitar geração dos defaults nativos via `CreateDefaultClientScopes`, mantendo apenas `groups` customizado. OTP da operadora preservado; visitante ainda depende de cadastro. Testes e limites nas [evidências](../../evidence/02-identity-access.md), seção 7.
+**Correção autorizada em 25/10:** restaurados scopes `basic`/`roles` ausentes após `Unexpected error`, sem novas roles de usuário nem reset de credenciais. Template corrigido para defaults nativos; autora depois confirmou cadastro, login e OTP das duas contas. Histórico detalhado nas seções 7–8 das evidências.
 
 **Validação:** IA-05 e preparação de IA-06/IA-07. Required action de cadastro e token preview, isoladamente, não comprovam MFA nem autorização no gateway. Sem autora/autenticador, registrar bloqueio e não avançar alegando sucesso.
 
-**Progresso manual posterior à correção:** autora confirmou que a página da operadora abriu e depois que o cadastro/acesso da visitante funcionou. Falta novo login da visitante e rejeição de OTP incorreto/ausente para ambas. T04 permanece parcial; detalhes na seção 8 das evidências.
+**Resultado final:** cadastro, fluxo obrigatório e autorização da aplicação comprovados por inspeção e relatos manuais. Confirmação final do grupo da sessão na seção 19 das evidências. Preparar rascunho 03 em paralelo não implementou monitoramento.
 
-### T05 — Adicionar e configurar o gateway
+### T05 — Adicionar e configurar o gateway — executada
 
-- [ ] Adicionar OAuth2 Proxy nas duas redes da SPEC, sem alterar redes/bindings da API; porta loopback, usuário não root e logs limitados.
-- [ ] Aplicar provider, issuer, client confidencial, PKCE, escopos, grupo exato e domínio da SPEC.
-- [ ] Habilitar explicitamente verificação de nonce; manter issuer/assinatura/audience e e-mail verificado. Sem bearer bypass, skip-auth de upstream ou preflight público.
-- [ ] Configurar cookies/tempos aprovados, sem `Domain` compartilhado, sem encaminhar tokens à API ou resposta. Conferir documentação dos headers e não inferir que uma opção remove todos os headers por nome parecido.
-- [ ] Configurar logs sem query de callback e sem debug; verificar erros localmente antes de exportar saídas.
-- [ ] Validar configuração resolvida de forma seletiva/sanitizada e iniciar gateway com prazo finito.
+- [x] OAuth2 Proxy iniciado em 25/10 nas redes `identity`/`service`, porta somente `127.0.0.1:4180`, UID 65532, capabilities removidas e NoNewPrivs. API preservada sem porta/mount, somente `service`.
+- [x] Configuração aceita por `--config-test`; início OIDC canônico e PKCE S256, seguidos de login real da aplicação relatado pela autora.
+- [x] Configuração mantém nonce/issuer/assinatura/audience/e-mail verificado sem bypass. Redirect real com nonce/state; rejeições específicas aprovadas no harness T06.
+- [x] Cookie CSRF inspecionado por HTTP, cookie de sessão conferido pela autora no navegador; forwarding de Authorization ausente no upstream isolado. Configuração de não encaminhar tokens e tempos preservada.
+- [x] Logs configurados sem request/auth logging e sem debug; nenhum dump de logs/queries foi incluído na coleta desta retomada.
+- [x] Compose válido, discovery interno aprovado, API saudável e gateway `/ready` 200 dentro da espera de 60 s. Inspeção seletiva de portas/redes/mounts/privilégios realizada.
 
 **Validação:** IA-02/IA-03 completos; novos serviços não tornam a API pública. Sem sessão, gateway exige login e `/oauth2/auth` retorna 401; callback incompleto não cria sessão.
 
+**Resultado em 25/10:** runtime, login real, cookies e negações verificados nas seções 9–19 das evidências. Callback incompleto retornou 500 sem sessão; state/nonce foram exercitados com precondições próprias no harness, não inferidos desse primeiro erro.
+
 ### T06 — Testar acesso permitido e negações no navegador
 
-- [ ] Sessão limpa: visitar `/` e `/health` pelo gateway, sem receber conteúdo da API; inspecionar redirecionamento somente para hosts previstos.
-- [ ] Injetar headers fictícios de usuário/grupo/autorização sem cookie: acesso continua bloqueado.
-- [ ] Operadora: senha sozinha não libera; OTP incorreto falha; OTP válido e grupo exato permitem 200/JSON original.
-- [ ] Visitante: concluir senha+OTP no Keycloak e observar negação no gateway. Separar evidência de autenticação do IdP da evidência HTTP 403, sem tratar mero erro de login como teste de autorização.
-- [ ] Em conta fictícia, testar grupos ausente/vazio/semelhante, um ajuste por vez; registrar/restaurar configuração e usar sessão nova. Confirmar controle positivo após restauração.
-- [ ] Definir/executar teste isolado do verificador de ID token do gateway com assinatura válida, audiência incompatível e controle positivo. Sem harness reproduzível, registrar IA-08 parcial/bloqueado. Erro de client secret/código não substitui esse teste; não modificar o emissor do gateway principal nem desligar verificações.
-- [ ] Cookie adulterado e callback sem state válido: não liberam; não armazenar cookie/código em relatório.
-- [ ] Conferir atributos dos cookies no navegador, incluindo cookie de CSRF e limite de tamanho; erro de cookie grande não se resolve desabilitando proteção ou adicionando Redis sem análise.
+- [x] Anônimo negado em `/` e `/health` por cliente HTTP; fluxo manual em sessão limpa, pós-logout e expiração também não liberou API. `/oauth2/start` redireciona somente ao Keycloak canônico.
+- [x] Cliente HTTP com headers fictícios de usuário/grupo/autorização sem cookie recebeu 403 em `/health` em 25/10, sem liberação da API.
+- [x] Operadora: autora confirmou login exige senha+OTP, rejeição de OTP incorreto, JSON original, `/health` autorizado e controle positivo pós-restauração. Não foi coletado token nem status HTTP autenticado diretamente pelo agente; resposta 200 exercitada tecnicamente no harness e contrato da API.
+- [x] Autora confirmou explicitamente em 25/10 que OTP incorreto foi rejeitado no login da aplicação. Ausência de OTP e resposta específica de `/health` não foram detalhadas nessa confirmação; não inferir observação do agente.
+- [x] Após instrução de login da visitante com senha+OTP em sessão anônima nova na aplicação, autora relatou `Forbidden 403` em 25/10. Evidência manual relatada, não navegador observado pelo agente; sem JSON da API relatado. Variações de grupo e demais verificações de IA-07 permanecem pendentes.
+- [x] Visitante/operadora sem grupo negadas no realm real; associação da operadora restaurada com controle positivo relatado. Claims ausente/vazia/grupo semelhante negadas no proxy real com identidade de fixture isolada, sem alterar mapper do realm principal; limites na seção 18 das evidências.
+- [x] Harness reproduzível `Test-IdentityVerifier.ps1`: duas execuções finais completas com mesma imagem do proxy, rede interna temporária e sem portas/segredos reais. ID token de assinatura válida com audience incompatível negado, controle positivo 200; também issuer, assinatura, nonce e expiração inválidos. Gateway principal não alterado; seção 18 das evidências.
+- [x] No harness, cookie real emitido e adulterado recebeu 403; original continuou válido. Callback com state alterado e cookie CSRF não chegou ao token endpoint. Nenhum cookie/token persistido nas evidências.
+- [x] CSRF conferido por HTTP; atributos do cookie de sessão conferidos pela autora e pelo harness. Login real e controle positivo funcionaram sem erro de tamanho; não foi medido o limite máximo de grupos. Cookies de pré-login Keycloak inspecionados em Chrome headless, sem coletar valores; sessão autenticada Keycloak não inspecionada pelo agente. Seção 19 das evidências.
 
 **Validação:** IA-04 a IA-08; status/caminhos reais e resultados sanitizados registrados. Provar que um token arbitrário sem sessão não passa não é prova isolada da validação de assinatura do fluxo OIDC.
 
 ### T07 — Sessão, logout, persistência e falhas
 
-- [ ] Medir validade de 5 min sem renovação; requisições periódicas não estendem o prazo. Verificar comportamento após expiração com sessão do Keycloak existente.
-- [ ] Remover grupo da operadora ou bloquear sua conta temporariamente; login novo negado e sessão anterior deixa de dar acesso até o limite da SPEC. Restaurar apenas a configuração alterada e retestar.
-- [ ] Logout só no gateway: cookie removido e distinguir sessão remanescente no IdP. Encerrar ambas as camadas e verificar nova senha+OTP; sem prometer single logout.
-- [ ] Reiniciar Keycloak/gateway sem apagar volume, mantendo chave de cookie local; verificar realm/client/grupo/OTP persistentes e login/negação após reinício.
-- [ ] Parar Keycloak e testar login novo negado; sessão existente pode funcionar até expirar. Retomar e aguardar prontidão.
-- [ ] Parar somente API: sessão autorizada recebe erro upstream, nunca falso sucesso. Retomar API, aguardar saúde e verificar acesso.
+- [x] Autora relatou expiração em aproximadamente cinco minutos com atualizações periódicas e confirmou novo login exigindo senha+OTP sem sair do Keycloak. Medição manual aproximada, não cronometragem independente em segundos.
+- [x] Grupo retirado temporariamente: login novo normal 403, sessão antiga anônima perdeu acesso; autora confirmou bloqueio até prazo de cinco minutos. Grupo restaurado e novo login positivo confirmado. Credenciais/demais associações preservadas.
+
+**Revogação e restauração (25/10):** grupo retirado às 08:56:41 (-03:00) e restaurado às 09:06:36; autora confirmou teto até 09:01:41 e controle positivo final. Não houve medição automática da expiração nem revogação instantânea. Nenhum grupo semelhante foi criado no realm principal.
+- [x] Autora confirmou sucesso do procedimento de logout em duas camadas: gateway bloqueia `/health`, sessão Keycloak permanece ativa até logout próprio e novo login após ambas exige senha+OTP. Resultado manual relatado; remoção do cookie inferida pelo comportamento, não por inspeção direta do agente. Sem promessa de single logout.
+- [x] Após Docker voltar, retomados os containers existentes de Keycloak/API/gateway em 25/10, aproximadamente 08:42–08:43 (-03:00), sem exclusão de volume. Nome do volume e arquivos de segredo preservados; realm/client/fluxo obrigatório, contas, grupos e metadados password/OTP conferidos por leitura administrativa. Autora confirmou depois os dois testes solicitados: operadora acessa com OTP existente e visitante recebe 403 após autenticação, em sessões novas. Persistência validada nessa retomada, sem recadastro de OTP relatado.
+
+**Impedimento resolvido em 25/10:** engine voltou acessível; containers existentes retomados em ordem, sem reset/remover dados. Discovery/probe/metadados e login/negação pós-retomada confirmados. Código 255 anterior não teve causa determinada; não foi tratado como perda de dados.
+- [x] Keycloak parado isoladamente em 25/10, 08:52 (-03:00): autora relatou erro ao acessá-lo no procedimento de login novo em sessão limpa, sem conclusão do login. API/gateway permaneceram ativos. Keycloak retomado às 08:53; discovery host/interno, JWKS e probe API aprovados. Não foi testada a continuidade de cookie preexistente durante a falha; não se promete revogação instantânea.
+- [x] API parada isoladamente em 25/10, 08:46 (-03:00); autora relatou 502 Bad Gateway na sessão autenticada, sem falso sucesso. API retomada às 08:47, saudável e probe interno aprovado; autora confirmou depois retorno do JSON pelo gateway. Não informou necessidade de novo login. Keycloak/gateway permaneceram ativos.
 
 **Validação:** IA-09 a IA-11. Registrar janela real de revogação, estado das sessões e limites; se ultrapassar o contrato, investigar/revisar explicitamente, não declarar revogação imediata.
 
 ### T08 — Regressão, documentação e fechamento
 
-- [ ] Reexecutar os 35 testes da Fundação via Compose e probe interno; reinspecionar API sem portas, só em `service` e sem mounts novos.
-- [ ] Conferir bindings de gateway/Keycloak em `127.0.0.1`, usuário efetivo, mounts aprovados e logs sem segredos.
-- [ ] Registrar consumo observado, versões/digests e prazos de prontidão; medir é diferente de estimar.
-- [ ] Criar runbook com bootstrap/import, cadastro TOTP, login/negação, expiração/logout, parada/recuperação e preservação do volume.
-- [ ] Criar evidências por IA-01 a IA-12, sanitizadas; revisar screenshots, URLs, configs e exports. Não versionar export integral do realm com dados reais do laboratório.
-- [ ] Repetir procedimento documentado no ambiente disponível; registrar quem executou cada passo manual e quais limitações permanecem.
-- [ ] Atualizar README/arquitetura/roadmap somente conforme resultados; concluir apenas com todos os critérios verificados.
+- [x] Regressão final em 25/10, aproximadamente 09:23 (-03:00): 35 API, 10 estáticos e 12 verificações isoladas aprovadas; discovery/probe e fronteiras da API novamente conferidos.
+- [x] Bindings `127.0.0.1`, usuários/mounts/restrições e logs inspecionados; sem correspondências a segredos conhecidos/padrão JWT. IPv6 loopback não acessível; limites da varredura registrados.
+- [x] Versões/digests, esperas e snapshots de memória registrados sem alegar dimensionamento.
+- [x] Runbook revisado com bootstrap, contas/TOTP, login/negação, sessão/logout, falhas e preservação do volume.
+- [x] Matriz IA-01–IA-12 consolidada, evidências sanitizadas e sem export de realm/credenciais.
+- [x] Procedimentos técnicos executados pelo agente e interativos confirmados pela autora; origem/limites explícitos nas evidências.
+- [x] README/arquitetura/roadmap/topologia atualizados conforme o fechamento; monitoramento não implementado.
 
 **Validação:** IA-12 e revisão dos anteriores. Não adiantar monitoramento, automação ou frontend.
 
 ## 4. Comandos e recuperação previstos
 
-Nomes implementados no overlay. T01–T03, regressão e `--config-test` executados; cadastro de contas/MFA e início permanente do gateway não executados. Procedimentos repetíveis no [runbook](../../runbooks/identity-access.md).
+Serviços implementados no overlay e validados. Procedimentos repetíveis no [runbook](../../runbooks/identity-access.md); registros de falhas/correções nas evidências. Nunca executar novamente o inicializador para rotacionar dados de instalação existente.
 
 ```powershell
 docker compose -f compose.yaml -f compose.identity.yaml config --quiet
@@ -165,16 +174,19 @@ Preencher quando tarefas forem autorizadas e executadas; não registrar aprovaç
 | Preparação de T05 | 24/10/2026 | Agente: arquivos e container temporário `--config-test` | Configuração válida após corrigir cookie-secret-file para 32 bytes brutos | T05 não concluída: iniciar gateway só após gate manual T04 |
 | Regressão antecipada | 24/10/2026 | Agente: suites em containers e probe | 35 testes API + 9 verificações estáticas aprovados; API sem portas, só service, zero mounts; API parada novamente | Não substitui login/TOTP/autorização ou fechamento T08 |
 | T04 — correção da interface de conta | 25/10/2026 | Autora autorizou; agente corrigiu scopes via cliente administrativo temporário e template | Credenciais/grupos/roles preservados; e-mails fictícios verificados; 10 testes estáticos, import isolado e discovery aprovados; previews com claims esperados | Autora retestar operadora com OTP existente e cadastrar visitante; sucesso interativo ainda não comprovado, gateway não iniciado |
+| T05 e negações iniciais T06 | 25/10/2026 | Autora autorizou retomada; agente iniciou API/gateway e testou por cliente HTTP local | API saudável, gateway ready 200; bindings mínimos; anônimo/headers/cookie sintético negados; callback inválido 500 sem sessão; 10 estáticos aprovados | Autora testar login da operadora na aplicação; depois visitante, cookies, sessão/logout e falhas; audiência isolada ainda pendente |
+| T08 — regressão parcial no fechamento | 25/10/2026 | Agente: suites, discovery, probe, inspeção seletiva e cliente HTTP | 35 API + 10 estáticos aprovados; API sem publicação; loopback dos serviços de identidade; ready 200 e negações preservadas | Sessão cronometrada ainda aguarda autora; demais testes T06/T07 e documentação final pendentes; entrega não concluída |
+| T06–T08 — fechamento final | 25/10/2026 | Autora confirmou procedimento final; agente executou regressão e revisão | 35 API + 10 estáticos + 12 verificações isoladas aprovados; contas/grupo restaurados, sessão/logout/falhas/persistência confirmados; cookies de pré-login Keycloak inspecionados separadamente | Entrega concluída, mantendo limites documentados; próxima ação é revisar monitoramento para intenção de Zabbix, sem implementação nesta etapa |
 
 ## 6. Checklist de conclusão
 
 - [x] D01–D04 resolvidas com risco/limites aprovados e desenho revisado.
-- [ ] IA-01 a IA-12 comprovados, incluindo navegador e TOTP real fictício.
-- [ ] Nenhuma porta da API publicada; interfaces novas somente loopback.
-- [ ] Autenticação da visitante bem-sucedida e autorização negada pelo gateway.
-- [ ] Sessão, logout e revogação explicados sem promessas de invalidação instantânea.
-- [ ] Realm e MFA persistentes sem exclusão de volumes.
-- [ ] Logs, templates, arquivos e evidências sem segredos.
-- [ ] Regressão da Fundação aprovada e documentos consistentes.
+- [x] IA-01 a IA-12 verificados, diferenciando browser relatado de containers/fixture observados.
+- [x] Nenhuma porta da API publicada; interfaces novas somente loopback.
+- [x] Autenticação da visitante seguida de negação pelo gateway relatada pela autora.
+- [x] Sessão, logout e revogação explicados sem invalidação instantânea.
+- [x] Realm e MFA persistentes após retomada, sem exclusão de volumes.
+- [x] Logs/templates/evidências sanitizados e varredura limitada documentada.
+- [x] Regressão aprovada e documentação consistente.
 
-Até cumprir o checklist, a entrega não está concluída. Aprovar um desenho não equivale a validar sua implementação.
+Entrega concluída em 25/10/2026 no escopo do laboratório. Migração do bootstrap para administradora permanente não executada, fora dos critérios IA-01–IA-12. Não equivale a produção, ZTNA completo ou auditoria independente.

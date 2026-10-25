@@ -1,6 +1,6 @@
 # Roadmap de implementação
 
-> Status: Fundação Local concluída em 24/10/2026. Identidade em implementação: T01–T03 executadas; T04 parcial, com cadastro/acesso positivo à interface de conta confirmado pela autora para ambas após correção dos scopes em 25/10. Testes negativos pendentes; gateway só validado em configuração. Demais entregas não iniciadas.
+> Status: Fundação Local concluída em 24/10/2026; Identidade concluída em 25/10/2026, IA-01–IA-12 consolidados. Monitoramento em especificação: rascunho inicial precisa ser revisto para a intenção de usar Zabbix, inclusive impacto nos incidentes. Nenhum monitor implementado; demais entregas não iniciadas.
 
 ## Como usar
 
@@ -21,19 +21,19 @@ Não marcar uma entrega como concluída com base apenas em código gerado ou lei
 02 + 03 + 04 → 05 Validação integrada e demonstração
 ```
 
-A ordem sugerida de trabalho é 01 → 02 → 03 → 04 → 05. O monitoramento depende da fundação, mas pode ser trabalhado antes da identidade caso exista um bloqueio explícito, sem contornar controles de acesso.
+A ordem sugerida de trabalho é 01 → 02 → 03 → 04 → 05. O monitoramento depende da fundação. Em 25/10, a autora solicitou preparar SPEC/PLAN 03 em paralelo à identidade ainda parcial; essa antecipação documental não autoriza implementar a entrega 03, contornar controles nem dispensar as validações da entrega 02.
 
 ## Visão geral
 
 | Entrega | Estado | Documentação prevista |
 | --- | --- | --- |
 | 01 — Fundação local | Concluída | `features/01-local-foundation/{SPEC,PLAN}.md` |
-| 02 — Identidade e acesso | Em implementação | `features/02-identity-access/{SPEC,PLAN}.md` |
-| 03 — Monitoramento | Não iniciada | `features/03-monitoring/{SPEC,PLAN}.md` |
+| 02 — Identidade e acesso | Concluída | [SPEC](features/02-identity-access/SPEC.md) / [PLAN](features/02-identity-access/PLAN.md) |
+| 03 — Monitoramento | Em especificação | [SPEC](features/03-monitoring/SPEC.md) / [PLAN](features/03-monitoring/PLAN.md) |
 | 04 — Automação de incidentes | Não iniciada | `features/04-incident-automation/{SPEC,PLAN}.md` |
 | 05 — Validação integrada e demonstração | Não iniciada | Checklist transversal, runbook e evidências |
 
-Os caminhos da tabela são relativos a `docs/`. A Fundação possui [SPEC](features/01-local-foundation/SPEC.md), [PLAN](features/01-local-foundation/PLAN.md) e [evidências](evidence/01-local-foundation.md). Identidade possui [SPEC aprovada](features/02-identity-access/SPEC.md), [PLAN em execução](features/02-identity-access/PLAN.md), [evidências parciais](evidence/02-identity-access.md) e [runbook](runbooks/identity-access.md). Próximo passo: autora testar novo login e rejeição de OTP incorreto/ausente para ambas; só depois iniciar gateway/testes de autorização. D04 autorizou bridge não interna de identidade após falha de publicação; API continua sem portas e só em rede interna. Última suite API: 35 aprovados em 24/10; 10 verificações estáticas e import isolado do template aprovados em 25/10. Identidade não concluída.
+Os caminhos da tabela são relativos a `docs/`. Identidade possui [matriz final de aceite](evidence/02-identity-access.md), [PLAN concluído](features/02-identity-access/PLAN.md) e [runbook](runbooks/identity-access.md). Fechamento combinou relatos manuais da autora (MFA/acesso/403/sessão/logout/retomada) com inspeção real de redes/portas/falhas e harness isolado do mesmo proxy. Regressão final em 25/10: 35 API + 10 estáticos + 12 verificações isoladas aprovados. D04 não demonstra egress bloqueado; API segue somente em rede interna sem porta. Próximo passo é revisão documental para Zabbix, não instalação automática nem substituição silenciosa dos critérios de incidentes.
 
 ## 01 — Fundação local
 
@@ -68,12 +68,12 @@ Escopo da especificação:
 
 Critérios de saída:
 
-- [ ] Sem sessão, o navegador precisa se autenticar.
-- [ ] A conta autorizada precisa concluir MFA para entrar.
-- [ ] A conta autenticada sem permissão tem o acesso negado pelo gateway.
-- [ ] A API continua sem acesso direto por porta publicada.
-- [ ] Emissor OIDC, redirects e transporte funcionam sem desabilitar validações de tokens.
-- [ ] Exceções locais, caso necessárias, estão justificadas e documentadas.
+- [x] Sem sessão, o navegador precisa se autenticar.
+- [x] A conta autorizada precisa concluir MFA para entrar.
+- [x] A conta autenticada sem permissão tem o acesso negado pelo gateway.
+- [x] A API continua sem acesso direto por porta publicada.
+- [x] Emissor OIDC, redirects e transporte funcionam sem desabilitar validações de tokens.
+- [x] Exceções HTTP/dev-file/rede local justificadas, aprovadas e documentadas, sem alegar produção.
 
 ## 03 — Monitoramento
 

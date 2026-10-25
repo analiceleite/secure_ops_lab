@@ -1,6 +1,6 @@
 # Arquitetura do SecureOps Lab
 
-> Status: Fundação Local concluída; Identidade em implementação (Keycloak e configuração do gateway, cadastro TOTP/autorização pendentes). Monitoramento e automação planejados. Este documento concentra decisões compartilhadas; detalhes executáveis ficam nas SPECS.
+> Status: Fundação Local e Identidade concluídas. IA-01–IA-12 verificados em 25/10/2026, combinando testes técnicos e relatos manuais da autora. Monitoramento em especificação; automação planejada. Este documento concentra decisões compartilhadas; detalhes executáveis ficam nas SPECS.
 
 ## 1. Restrições
 
@@ -35,6 +35,8 @@ flowchart TD
 
 O armazenamento pode usar um recurso já disponível ou exigir um componente adicional. Essa escolha permanece aberta até a SPEC de automação; não adicionar um banco apenas por antecipação.
 
+No fechamento da entrega 02, somente API, Keycloak e gateway estão implementados nesse diagrama. Uptime Kuma/n8n representam o desenho inicial futuro, não containers existentes. A intenção de usar Zabbix requer revisar SPEC/PLAN 03 e impacto nos incidentes antes de implementar ou substituir requisitos.
+
 ## 3. Acesso e identidade
 
 Fluxo esperado:
@@ -47,7 +49,7 @@ Fluxo esperado:
 
 Contas previstas: uma operadora autorizada e uma visitante autenticável, mas sem autorização. Ambas devem permitir comprovar a separação entre identidade e permissão.
 
-A [SPEC 02](features/02-identity-access/SPEC.md) detalha realm, client, redirects, claims, autorização, cookies, logout e cadastro TOTP. Desenho aprovado; Keycloak executado, mas gateway só passou em teste de configuração. Não usar redirects amplos ou ignorar validações de emissor para contornar problemas de rede.
+A [SPEC 02](features/02-identity-access/SPEC.md) detalha realm/client, claims, autorização, cookies, logout e TOTP. Keycloak/gateway executando; autora confirmou operadora permitida, visitante negada, OTP, sessão aproximada de cinco minutos, logout e retomada. Harness isolado do mesmo binário valida audiência/assinatura/nonce/state/grupos/cookie, sem alterar o gateway principal. Origem/limites na seção 19 das [evidências](evidence/02-identity-access.md). Não usar redirects amplos nem ignorar validações de emissor.
 
 ### Endereçamento OIDC
 
@@ -77,7 +79,7 @@ A máquina hospedeira, seus administradores e o daemon Docker fazem parte da bas
 
 ## 5. Transporte local
 
-HTTP estritamente local, cookies sem Secure onde necessário e modo de desenvolvimento foram aprovados explicitamente na [SPEC 02](features/02-identity-access/SPEC.md), com riscos, limites e validações pendentes de navegador. A exceção inclui credenciais fictícias e cookies do Keycloak/gateway, sem desligar validações OIDC. A política SSL do realm continua `external`; qualquer redução exige nova aprovação específica.
+HTTP estritamente local, cookies sem Secure onde necessário e modo de desenvolvimento aprovados na [SPEC 02](features/02-identity-access/SPEC.md). Cookie de sessão do gateway sem Secure confirmado pela autora. Chrome headless observou cookies de pré-login Keycloak com Secure/SameSite=None em `.localhost`; isso não transforma HTTP em TLS nem garante o mesmo comportamento em outros navegadores. Cookies autenticados Keycloak não inspecionados pelo agente. Validações OIDC mantidas; SSL do realm continua `external`.
 
 A solução deve registrar URLs, confiança de certificados, comportamento dos cookies e eventuais exceções. Caso HTTP seja escolhido para a PoC, não apresentar o tráfego como cifrado, não usar credenciais reais e documentar o limite local. Não espalhar desativações de TLS ou de verificação de tokens como atalho.
 
@@ -120,8 +122,8 @@ Volumes não substituem backups e não garantem integridade ou auditoria imutáv
 | Decisão | Resolver em |
 | --- | --- |
 | Fundação: versões, porta interna e rede definidas; execução validada e snapshot de consumo registrado | [SPEC 01 — Fundação local](features/01-local-foundation/SPEC.md) e [evidências](evidence/01-local-foundation.md) |
-| D01–D04 aprovadas: transporte local, nomes OIDC, dev-file e rede de identidade; validação de login/MFA pendente | [SPEC 02 — Identidade e acesso](features/02-identity-access/SPEC.md) |
-| Intervalos, retries e payload real de notificação | SPEC 03 — Monitoramento |
+| D01–D04 aprovadas e identidade concluída, com limites e resultados registrados | [SPEC 02 — Identidade e acesso](features/02-identity-access/SPEC.md) e [evidências](evidence/02-identity-access.md) |
+| Transporte/rede do painel, persistência, intervalos, retries e payload real de notificação; propostas ainda não aprovadas | [SPEC 03 — Monitoramento](features/03-monitoring/SPEC.md) |
 | Autenticação do webhook, armazenamento e consistência dos eventos | SPEC 04 — Automação de incidentes |
 
 ## 9. Limites da demonstração

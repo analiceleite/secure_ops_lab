@@ -4,7 +4,7 @@ Laboratório pessoal de operações de TI e segurança para praticar controle de
 
 O projeto simula a operação de um serviço interno: somente usuários autorizados podem acessá-lo e, quando ele fica indisponível, um fluxo automatizado registra o incidente e acompanha sua recuperação.
 
-> **Status:** Fundação Local concluída. Identidade em implementação: autora confirmou cadastro/acesso positivo à interface de conta para operadora e visitante após correção dos scopes. Testes negativos e autorização no gateway pendentes. Última suite API: 35 aprovados em 24/10; 10 verificações estáticas de identidade aprovadas em 25/10. Gateway ainda não iniciado. Monitoramento e automação não implementados.
+> **Status:** Fundação Local e Identidade concluídas em 25/10/2026. Operadora com MFA autorizada, visitante negada, sessão/logout, persistência e falhas validados por testes técnicos e confirmações manuais. Regressão final: **35 testes API + 10 estáticos de identidade + 12 verificações OIDC isoladas aprovados**. Monitoramento/automação ainda não implementados; próxima revisão de SPEC/PLAN avaliará Zabbix.
 
 ## Objetivo
 
@@ -42,12 +42,12 @@ flowchart TD
     browser[Navegador local] --> gateway[OAuth2 Proxy\nGateway de acesso]
     gateway <--> identity[Keycloak\nIdentidade e MFA]
     gateway --> api[API fictícia\nSem porta publicada no host]
-    monitor[Uptime Kuma] -->|Verificação interna de saúde| api
-    monitor -->|Webhook de falha ou recuperação| automation[n8n]
-    automation --> incidents[Registro persistente local de incidentes]
+    monitor[Monitoramento · planejado] -.->|Verificação interna de saúde| api
+    monitor -.->|Eventos · desenho a revisar| automation[Tratamento de incidentes · planejado]
+    automation -.-> incidents[Persistência de incidentes · planejada]
 ```
 
-A Fundação Local usa `service` interna, sem volumes nem portas da API. O overlay `compose.identity.yaml` acrescenta Keycloak, volume sensível e rede `identity` não interna, com publicação somente em loopback. Gateway está configurado, mas ainda não iniciado como serviço. O acesso de usuário deverá passar pelo gateway; interfaces administrativas continuam restritas ao computador local. Detalhes e exceções na [SPEC 02](docs/features/02-identity-access/SPEC.md).
+A Fundação Local usa `service` interna, sem volumes nem portas da API. O overlay `compose.identity.yaml` acrescenta Keycloak, volume sensível e rede `identity` não interna, com publicação somente em loopback. O gateway autoriza somente `/secureops-operators`; visitante com MFA recebe 403. Veja a [topologia HTML implementada](docs/topology.html), [SPEC 02](docs/features/02-identity-access/SPEC.md) e a matriz final nas [evidências](docs/evidence/02-identity-access.md). Tracejado no diagrama indica trabalho futuro, não serviço executando.
 
 ### Tecnologias previstas
 
@@ -56,8 +56,7 @@ A Fundação Local usa `service` interna, sem volumes nem portas da API. O overl
 | Node.js + TypeScript | Serviço fictício com página simples e endpoint de saúde |
 | Keycloak | Gerenciar usuários, grupos e MFA com TOTP |
 | OAuth2 Proxy | Integrar autenticação OIDC e restringir o acesso à aplicação |
-| Uptime Kuma | Verificar disponibilidade e emitir eventos |
-| n8n Community, self-hosted | Processar eventos e automatizar o ciclo de incidente |
+| Monitoramento / incidentes | Rascunho inicial Uptime Kuma + n8n; revisão para Zabbix solicitada, ainda sem implementação |
 | Docker Compose | Orquestrar serviços, redes e volumes locais |
 
 O mecanismo de persistência dos incidentes será escolhido nas especificações, priorizando simplicidade, consulta e reprodução dos testes.
@@ -75,7 +74,7 @@ O uso pessoal local do n8n é gratuito, mas a ferramenta possui licença própri
 - Comprovar que autenticação bem-sucedida não implica autorização.
 - Impedir acesso direto à API por uma porta publicada no host.
 
-A forma de representar e validar permissões por grupos ou claims será detalhada na especificação de identidade.
+A permissão implementada é a associação ao grupo exato `/secureops-operators`, validada pelo OAuth2 Proxy, não por headers enviados pelo navegador.
 
 ### 2. Monitoramento de disponibilidade
 
@@ -116,7 +115,7 @@ A autenticação do webhook, a persistência e o tratamento de eventos repetidos
 | Repetição do evento de falha | Nenhum incidente aberto duplicado |
 | Retorno da API | Monitor detecta recuperação e automação encerra o incidente |
 
-Esses cenários são metas de validação, não resultados já obtidos.
+Os cenários de identidade foram validados no escopo da entrega 02 (origem manual/automática e limites nas evidências). Os cenários de monitoramento/incidentes continuam metas, não resultados obtidos.
 
 ## Segurança e limites
 
@@ -159,7 +158,7 @@ A partir da raiz do projeto, no PowerShell, com Docker em modo Linux:
 
 - Ambiente validado: Docker Engine `28.5.1`, Compose `v2.40.2-desktop.1`, Linux `amd64` via Docker Desktop.
 - Versões da aplicação: Node `24.22.1`, TypeScript `5.9.3`, `@types/node` `24.19.2`.
-- Sem necessidade de portas livres no host. Na coleta local, a API usou aproximadamente 19 MiB de memória; isso é um snapshot, não requisito mínimo ou dimensionamento do laboratório completo. O daemon dispunha de 12 CPUs e 7,61 GiB totais; consumo máximo de build e espaço necessário não foram medidos.
+- Fundação sem portas no host; identidade exige **4180 e 8080 livres em loopback**. Snapshots finais: API 22.05 MiB, Keycloak 615.5 MiB, gateway 24.86 MiB; não são requisitos mínimos nem medição de pico. O daemon dispunha de 12 CPUs e 7,61 GiB totais; espaço necessário não foi medido.
 
 ```powershell
 docker compose config --quiet
@@ -185,7 +184,7 @@ docker compose logs --no-color api
 
 O probe consulta `http://api:3000/health`, exige `200` e o JSON esperado e limita a requisição completa a 2 segundos. O health check usa o mesmo script contra `127.0.0.1` dentro do container. Os auxiliares ficam no profile `tools` e não são serviços permanentes; não dependem do início automático da API.
 
-A API não tem porta publicada, portanto não há endereço para abri-la no navegador do host. HTTP interno não cifra o tráfego fictício; a máquina e o Docker pertencem à base de confiança. A ausência de publicação não comprova isolamento absoluto. Identidade e acesso pelo gateway pertencem à próxima entrega.
+A API não tem porta publicada; acesso do navegador é pelo gateway em **http://app.localhost:4180/**, conforme o [runbook de identidade](docs/runbooks/identity-access.md). HTTP não cifra o tráfego fictício; máquina e Docker pertencem à base de confiança. Ausência de publicação não comprova isolamento absoluto.
 
 ### Simular falha e recuperar
 
@@ -207,9 +206,9 @@ Para inspecionar bindings, usuário efetivo, redes e logs de saúde, siga o [run
 
 ## Próximos passos
 
-1. Seguir o [runbook de identidade](docs/runbooks/identity-access.md): testar novo login e negação de OTP incorreto/ausente para ambas em **http://keycloak.localhost:8080/realms/secureops-lab/account/**. Não usar a URL administrativa para login das contas de aplicação nem enviar segredos ao chat.
-2. Retomar T04–T08 do [PLAN](docs/features/02-identity-access/PLAN.md): iniciar gateway após o gate manual e validar autorização, sessão, logout e persistência. [SPEC](docs/features/02-identity-access/SPEC.md) e [evidências parciais](docs/evidence/02-identity-access.md) registram D01–D04 aprovadas e limites. Não considerar o login protegido como já validado.
-3. Seguir para monitoramento, automação e demonstração integrada conforme o [roadmap](docs/roadmap.md).
+1. Revisar [SPEC/PLAN 03](docs/features/03-monitoring/SPEC.md) para a intenção de usar Zabbix, definindo também impacto no escopo de incidentes antes de implementar. O rascunho atual ainda descreve Uptime Kuma; não é um desenho Zabbix aprovado.
+2. Reproduzir a entrega 02 pelo [runbook](docs/runbooks/identity-access.md). Para os testes técnicos de tokens/cookies, executar `./scripts/Test-IdentityVerifier.ps1` com imagens locais disponíveis; não enviar segredos nem callbacks ao chat.
+3. Seguir para monitoramento, incidentes e demonstração integrada conforme o [roadmap](docs/roadmap.md), sem considerar a conclusão de identidade como conclusão do projeto inteiro.
 
 ## Resultado pretendido
 

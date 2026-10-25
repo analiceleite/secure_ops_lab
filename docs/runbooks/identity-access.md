@@ -1,13 +1,13 @@
-# Runbook — Identidade e acesso (parcial)
+# Runbook — Identidade e acesso
 
-**Estado:** Keycloak executado, duas contas criadas e cadastro/acesso positivo à interface de conta confirmado pela autora para ambas após correção dos scopes em 25/10. Testes negativos, login subsequente da visitante e gateway em runtime pendentes. Não é ainda um procedimento validado de ponta a ponta. Requisitos: [SPEC 02](../features/02-identity-access/SPEC.md). Resultados reais: [evidências](../evidence/02-identity-access.md).
+**Estado:** entrega concluída em 25/10/2026. Procedimentos técnicos executados pelo agente e interativos confirmados pela autora; resultados/limites na seção 19 das [evidências](../evidence/02-identity-access.md). Requisitos: [SPEC 02](../features/02-identity-access/SPEC.md). Instalação nova ainda exige provisionamento manual; não recriar contas/OTP no ambiente existente.
 
 ## 1. Limites e arquivos
 
 - HTTP local aprovado, somente contas fictícias exclusivas. Senha/TOTP/cookies não têm confidencialidade de TLS. Não reutilizar credenciais pessoais.
 - `compose.yaml` preserva a Fundação. Somar `compose.identity.yaml` nos comandos de identidade; a API continua sem porta e só na rede `service` interna.
 - `identity` é bridge **não interna**, após aprovação explícita D04 e falha observada de publicação com rede interna. Keycloak/gateway podem ter saída de rede. Não foi feito teste de egress externo.
-- Keycloak publica `127.0.0.1:8080`; gateway, quando autorizado/iniciado, `127.0.0.1:4180`. Não abrir portas adicionais/roteador/túneis.
+- Keycloak publica `127.0.0.1:8080`; gateway `127.0.0.1:4180`. Não abrir portas adicionais/roteador/túneis.
 - Volume `keycloak-data` contém banco, credenciais MFA e chaves: é sensível, não é backup. Não usar `down -v`, prune ou reset de realm.
 - `.local/identity` contém segredos locais ignorados pelo Git e excluídos do build. O inicializador restringe sua ACL ao usuário Windows atual, mas isso não protege contra administradores/daemon Docker. Keycloak recebe seus segredos em ambiente (visível ao administrador Docker); o gateway lê dois arquivos read-only.
 
@@ -23,7 +23,7 @@ docker compose -f compose.yaml -f compose.identity.yaml up -d keycloak
 docker compose -f compose.yaml -f compose.identity.yaml --profile tools run --rm --no-deps identity-check
 ```
 
-O script de inicialização recusa pasta existente, gera client secret, senha de bootstrap e chave de cookie sem exibi-los. A chave `cookie-secret` tem **32 bytes binários brutos**, pois `cookie-secret-file` no proxy v7.15.5 não decodifica base64. Não abrir esse arquivo binário no editor, não adicionar newline e não copiar exemplos como valores reais.
+O inicializador recusa pasta existente e gera segredos sem exibi-los. A chave `cookie-secret` usa **32 bytes binários brutos**, formato validado no lab. O arquivo é lido sem normalização; `SecretBytes` no proxy v7.15.5 tenta base64url e, se não obtiver comprimento AES válido, usa bytes brutos. Não confundir base64 padrão com base64url nem substituir o arquivo por texto de 44 bytes. Não abrir o binário no editor, adicionar newline ou copiar exemplos como valores reais.
 
 Antes de executar `identity-check`, construir a imagem local com `docker compose build api` se ainda não existir. O cliente temporário usa essa imagem, sem porta, somente na rede de identidade, e não obtém tokens: testa DNS interno, issuer/endpoints, JWKS e negação HTTP 401 no token endpoint sem client secret. Saída `unauthorized_client` é o erro observado nesta versão. Não comprova MFA ou validação de audiência.
 
@@ -31,9 +31,9 @@ Antes de executar `identity-check`, construir a imagem local com `docker compose
 
 O template usa `attributes.CreateDefaultClientScopes="true"`, conferido no código da versão 26.8.1, para criar os scopes nativos mesmo com `groups` customizado. Não substituir os scopes nativos por definições parciais: `basic` contém claims básicos e `roles` permite à interface de conta reconhecer as permissões já existentes. O gateway tem somente `basic/profile/email` padrão e `groups` opcional; não se libera a aplicação por roles da interface de conta. O import corrigido foi aceito em container temporário sem rede, portas ou volume do lab, com banco `dev-mem`; isso não é teste de login.
 
-## 3. Próxima interação manual — criar contas (T04 pendente)
+## 3. Provisionar contas e TOTP — somente para instalação nova
 
-1. Abrir **http://keycloak.localhost:8080/admin/master/console/** no navegador. A abertura interativa desta página ainda precisa ser confirmada pela autora.
+1. Abrir **http://keycloak.localhost:8080/admin/master/console/** no navegador. Essa URL é administrativa, não login da aplicação.
 2. Consultar `.local/identity/keycloak.env` **somente em editor local**. Usar `KC_BOOTSTRAP_ADMIN_USERNAME` e `KC_BOOTSTRAP_ADMIN_PASSWORD` para entrar. Não executar comandos que imprimam o arquivo, nem enviar valores/capturas ao chat.
 3. A administradora de bootstrap é temporária e pertence ao `master`; não é a operadora da aplicação. Planejar uma conta administrativa permanente local, testar seu acesso e só então decidir com autorização específica sobre retirar o bootstrap. Não apagá-lo automaticamente nem usar suas credenciais no gateway.
 4. Selecionar realm **`secureops-lab`**, não criar contas de aplicação no `master`.
@@ -42,46 +42,89 @@ O template usa `attributes.CreateDefaultClientScopes="true"`, conferido no códi
 7. Repetir para `visitante`, e-mail `visitante@lab.example`, required action Configure OTP e senha exclusiva, **sem** associação ao grupo permitido.
 8. Não atribuir roles administrativas às duas contas. Confirmar que o client `secureops-gateway` usa o override Browser `secureops-browser-mfa`, com **Username Password Form REQUIRED** e **OTP Form REQUIRED**; não alterar o fluxo global para fazer login passar.
 
-Em 25/10, a inspeção administrativa confirmou ambas as contas e a associação correta de grupos. A operadora tem credenciais `password` e `otp`, sem required action pendente; a visitante tem somente `password` e `CONFIGURE_TOTP` pendente. E-mails fictícios foram marcados como verificados na correção autorizada. Isso não comprova login/MFA bem-sucedidos nem autorização no gateway.
+No ambiente entregue, ambas as contas já possuem senha/OTP e e-mail fictício verificado; somente operadora tem o grupo permitido. Cadastro/login/negações foram confirmados pela autora e repetidos após retomada. Não recriar credenciais nem required actions para repetir a demonstração.
 
-### Erro após digitar OTP — reteste após correção de 25/10
+### Diagnóstico de erro após OTP — correção histórica de 25/10
 
-O `account-console` estava sem scopes padrão e o realm não tinha `basic`/`roles`. Foram acrescentados esses scopes nativos (definições da própria versão) sem modificar senhas, OTP, grupos ou roles dos usuários. Atribuídos `basic/profile/email/roles` ao `account-console` e `basic` ao gateway; os fluxos MFA permanecem intactos. O reteste de navegador ainda está pendente: existência de credencial OTP e preview de claims não provam que o erro visual desapareceu.
+O `account-console` estava sem scopes padrão e o realm sem `basic`/`roles`. Restaurados scopes nativos, sem reset de credenciais nem novas roles. Autora confirmou desaparecimento do erro e login das duas contas. Se o problema reaparecer, inspecionar client/scopes/fluxo antes de alterar credenciais; repetir os passos abaixo só quando necessário.
 
 1. Fechar todas as janelas anônimas usadas no laboratório para descartar a sessão/token antigo. Não é necessário limpar o perfil pessoal do navegador.
 2. Abrir nova janela anônima em **http://keycloak.localhost:8080/realms/secureops-lab/account/**, não na URL administrativa `/admin/master/console/`.
 3. Entrar como `operadora`, com a senha da própria conta e o código atual da entrada **já cadastrada** no autenticador. Não remover/recriar OTP nem escanear outro QR para essa conta.
 4. Verificar se a página de conta abre. Se falhar, informar somente a mensagem e a etapa (antes/depois de enviar o OTP); não enviar código, QR, cookies ou URL completa com parâmetros de sessão.
-5. Se funcionar, sair e repetir para `visitante`, que ainda deverá apresentar Configure OTP. Cadastrar uma entrada separada no autenticador e confirmar com código válido, sem compartilhar segredos.
+5. Se funcionar, sair e repetir para `visitante`. Configure OTP só aparece em instalação nova sem credencial cadastrada; nesse caso usar entrada separada no autenticador. No ambiente atual, usar o OTP existente.
 
-O gateway permanece não iniciado. Não confundir acessar a própria conta no Keycloak com autorização para a aplicação; visitante pode gerenciar sua própria conta e ainda assim deve ser negada pelo gateway.
+Não confundir gerenciar a própria conta no Keycloak com autorização à aplicação; visitante gerencia a conta e é negada no gateway.
 
-### Cadastro TOTP e testes previstos (ainda não validados)
+### Cadastro TOTP e validação
 
 - TOTP HmacSHA1, 6 dígitos, 30 s e janela de tolerância 1; não ampliar a janela para mascarar relógio incorreto.
 - O cadastro deve ocorrer no navegador/autenticador da autora. Não exportar QR/seed e não usar serviços externos de decodificação/JWT/QR.
-- A interface de conta `http://keycloak.localhost:8080/realms/secureops-lab/account/` é o caminho proposto para cadastro antes de iniciar o gateway; sua navegação interativa permanece pendente (o ensaio headless excedeu 20 s).
+- A interface de conta `http://keycloak.localhost:8080/realms/secureops-lab/account/` foi usada pela autora para cadastro. Testar também na aplicação: cadastro/interface de conta não substitui MFA no client do gateway.
 - Concluir Configure OTP com código válido para **cada** conta. Depois sair e repetir autenticação, incluindo ausência de OTP e código incorreto. O primeiro cadastro sozinho não comprova MFA nos logins seguintes.
 - Se a interface de conta falhar, registrar o erro sanitizado e revisar a ordem T04/T05 antes de seguir; não criar fluxo alternativo sem MFA nem editar cookies para contornar erro.
 
-## 4. Gateway — arquivo pronto, runtime ainda pendente de T04
+## 4. Iniciar gateway e demonstrar autorização
 
-A configuração foi aceita por `--config-test`, mas isso não realiza discovery, login, autorização ou criação de cookies.
+Antes de iniciar gateway, Keycloak precisa estar pronto conforme seção 2. Configuração, discovery, negações e caminhos de operadora/visitante foram validados no fechamento.
 
 ```powershell
 docker compose -f compose.yaml -f compose.identity.yaml run --rm --no-deps oauth2-proxy --config=/etc/oauth2-proxy/oauth2-proxy.cfg --config-test
-# Somente após o gate de T04 e retomada da implementação:
 docker compose -f compose.yaml -f compose.identity.yaml up -d --wait --wait-timeout 60 api
 docker compose -f compose.yaml -f compose.identity.yaml up -d oauth2-proxy
+# Aguardar HTTP 200, repetindo por no máximo 60 segundos:
+curl.exe --noproxy '*' --resolve app.localhost:4180:127.0.0.1 --max-time 3 --silent --output NUL --write-out '%{http_code}' http://app.localhost:4180/ready
 ```
 
-Não há health check de container para Keycloak/proxy nesta etapa: não interpretar `up -d` como prontidão. Aguardar o gateway até 60 s por `/ready` com um cliente local e verificar status; essa validação ainda não foi executada. `/ping` e `/ready` são do gateway, **não** `/health` da API.
+Não há health check de container para Keycloak/proxy nesta etapa: não interpretar `up -d` como prontidão. Aguardar o gateway até 60 s por `/ready` com um cliente local e verificar status; `/ready` retornou 200 na retomada. `/ping` e `/ready` são do gateway, **não** `/health` da API.
 
-Testes manuais seguintes ficam no [PLAN T06/T07](../features/02-identity-access/PLAN.md): `/` e `/health` protegidos, `/oauth2/auth` 401 sem sessão, headers forjados rejeitados, operadora 200, visitante autenticada+MFA 403 e nenhum conteúdo upstream. Só coletar atributos do cookie sem seu valor. Janela de sessão/revogação até 5 min exige medição real.
+### Operadora na aplicação
 
-## 5. Logout previsto e preservação
+1. Fechar todas as janelas anônimas do laboratório e abrir uma nova em **http://app.localhost:4180/**. Sem sessão, deve aparecer início de login, não JSON da API.
+2. Selecionar o login pelo Keycloak; conferir host `keycloak.localhost:8080` e realm `secureops-lab`.
+3. Entrar como `operadora`, com sua senha existente. Confirmar que senha sozinha não conclui; enviar uma única tentativa de OTP propositalmente incorreto e verificar rejeição. Depois enviar o código atual correto da entrada já cadastrada.
+4. Confirmar retorno para `app.localhost:4180` e resposta JSON da aplicação. Na mesma janela abrir **http://app.localhost:4180/health**: esperado `{"status":"ok"}`.
+5. Relatar somente resultados/mensagem e etapa de eventual falha. Não enviar senha, código OTP, cookie, token ou URL completa de callback. Não recadastrar OTP.
 
-Logout local do gateway: **http://app.localhost:4180/oauth2/sign_out?rd=/oauth2/sign_in**. Isso não garante encerrar a sessão do Keycloak. Encerrar também na interface de conta/admin e confirmar nova exigência de senha+TOTP no client da aplicação. Esses testes continuam pendentes.
+Repetir com visitante após fechar todas as janelas anônimas: senha+OTP válidos devem terminar em **403**, sem JSON da API. Ambos os caminhos foram confirmados pela autora. Na operadora, `/oauth2/userinfo` permite conferir grupo da sessão sem copiar token; registrar só o grupo esperado, não o ID de usuário nem resposta integral.
+
+Sem sessão, `/` e `/health` retornam 403 com início de login; `/oauth2/auth` retorna 401. Headers de identidade enviados pelo cliente não autorizam. Cookie de sessão conferido pela autora: HttpOnly, SameSite=Lax, Secure desmarcado e Path `/`; host-only na configuração/headers. Não exportar valores. Não inferir atributos de todos os cookies Keycloak a partir desses atributos do gateway.
+
+## 5. Sessão, logout, falhas e preservação
+
+Logout local do gateway: **http://app.localhost:4180/oauth2/sign_out?rd=/oauth2/sign_in**. Atualizar `/health`: não deve liberar JSON. A sessão Keycloak pode continuar ativa na interface de conta. Sair também dela e confirmar senha+OTP em novo login. Autora validou as duas camadas; não há promessa de single logout.
+
+### Expiração e retirada de grupo
+
+1. Em sessão limpa da operadora, anotar horário do JSON e atualizar `/health` a cada 30 s sem novo login. Acesso deve cessar em aproximadamente cinco minutos; anotar último sucesso/primeiro bloqueio. Requisições não devem renovar prazo.
+2. Com sessão Keycloak ainda existente, iniciar novo login da aplicação: deve exigir senha+OTP novamente.
+3. Para testar revogação, manter sessão antiga na janela anônima; usar janela normal separada para login novo. **Abas ou janelas anônimas do mesmo perfil compartilham cookies.**
+4. Com autorização para o teste, retirar apenas associação da operadora ao grupo pela administração local; registrar horário e configuração anterior, sem mexer em senha/OTP. Login novo deve resultar 403 e acesso antigo cessar até cinco minutos após retirada, podendo cessar antes.
+5. Restaurar a associação original e confirmar novo login positivo. Não deixar a operadora sem permissão ao terminar. Resultados entregues são medições manuais aproximadas, não cronometragem automática em segundos.
+
+### Falhas controladas e retomada
+
+Com login da operadora recém-concluído e janela aberta, parar **somente** API:
+
+```powershell
+docker compose -f compose.yaml -f compose.identity.yaml stop api
+# Autora atualiza a página autenticada: esperado 502, não JSON nem falso sucesso.
+docker compose -f compose.yaml -f compose.identity.yaml up -d --wait --wait-timeout 60 api
+docker compose -f compose.yaml -f compose.identity.yaml --profile tools run --rm --no-deps probe
+# Confirmar retorno do JSON no navegador; se sessão expirou, informar novo login.
+```
+
+Em teste separado, parar somente Keycloak e tentar login em sessão limpa; deve falhar ao acessar o provedor, sem concluir autenticação. Sessão gateway anterior pode funcionar até expirar: não é revogação instantânea.
+
+```powershell
+docker compose -f compose.yaml -f compose.identity.yaml stop keycloak
+# Confirmar falha de novo login antes de retomar.
+docker compose -f compose.yaml -f compose.identity.yaml start keycloak
+./scripts/Test-IdentityDiscovery.ps1
+docker compose -f compose.yaml -f compose.identity.yaml --profile tools run --rm --no-deps identity-check
+```
+
+Para persistência, reiniciar Keycloak, aguardar discovery e reiniciar gateway; conferir prontidão antes de login da operadora e negação da visitante com OTP existente. Não apagar volume/segredos nem recadastrar OTP. No fechamento, a evidência foi retomada real dos containers parados após indisponibilidade do Docker, mais inspeção e novos logins, não instalação limpa.
 
 Parar preservando estado:
 
@@ -93,9 +136,25 @@ Reiniciar Keycloak preserva realm existente: import de startup usa `IGNORE_EXIST
 
 ## 6. Testes estáticos repetíveis
 
+### Verificador OIDC isolado
+
+Com Docker Linux acessível e imagens da API/proxy já disponíveis, executar da raiz:
+
+```powershell
+./scripts/Test-IdentityVerifier.ps1
+```
+
+O script lê a configuração versionada e gera cópia com endereços/segredos exclusivamente de teste. Cria dois containers sem portas e uma rede interna temporária, sem conectar ao realm nem ler segredos do lab. O binário real v7.15.5 é exercitado com ID tokens assinados pelo emissor fictício, controle positivo, audiência/issuer/assinatura/nonce/expiração inválidos, grupos ausente/vazio/semelhante, state alterado e cookie emitido/adulterado. São 12 verificações mais resumo final; falha deve interromper, não ser ignorada.
+
+Chaves ficam em memória; config efêmera em `.local/identity-verifier/` e recursos exclusivos dessa execução são removidos ao terminar, sem remover volumes. Se Docker ficar inacessível durante a execução, a limpeza pode não terminar: inspecionar os nomes específicos antes de qualquer ação, nunca executar prune ou limpeza ampla. Não apontar o gateway principal para o emissor diagnóstico.
+
+O harness não substitui login com MFA no navegador, atributos de cookies do realm real ou medição da sessão. Resultados e falhas corrigidas: seção 18 das [evidências](../evidence/02-identity-access.md).
+
+### Templates e regressão da API
+
 ```powershell
 docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true --mount "type=bind,source=$PWD\infra,target=/workspace/infra,readonly" --workdir /workspace secureops-api:0.1.0 node --test infra/identity/config.test.mjs
 docker compose --profile tools run --build --rm api-test
 ```
 
-São 10 verificações estáticas de templates/config. A última regressão da API tem 35 testes aprovados, executados em 24/10; não foi repetida na correção restrita de scopes em 25/10. Nenhuma dessas suites substitui navegador/TOTP, validade do cookie em runtime, teste isolado da audiência ou negação de autorização pelo gateway.
+No fechamento em 25/10: 35 testes API, 10 estáticos de identidade e 12 verificações isoladas aprovados, além de discovery/probe. Nenhuma suite estática substitui navegador/TOTP, sessão em runtime ou autorização real. Evidências distinguem cada origem.
