@@ -1,6 +1,6 @@
 # Arquitetura do SecureOps Lab
 
-> Status: Fundação Local e Identidade concluídas. IA-01–IA-12 verificados em 25/10/2026, combinando testes técnicos e relatos manuais da autora. Monitoramento em especificação; automação planejada. Este documento concentra decisões compartilhadas; detalhes executáveis ficam nas SPECS.
+> Status: Fundação Local e Identidade concluídas. Monitoramento com Zabbix em implementação após aprovação M-D01–M-D06; coleta de segurança ainda não implementada. n8n reservado à entrega 04, sem IA. Este documento concentra decisões compartilhadas; detalhes executáveis ficam nas SPECS.
 
 ## 1. Restrições
 
@@ -19,9 +19,12 @@ flowchart TD
     user <-->|Login e MFA| keycloak[Keycloak]
     proxy <-->|OIDC| keycloak
     proxy -->|Requisição autorizada| api[API Node.js e TypeScript]
-    kuma[Uptime Kuma] -->|HTTP interno: /health| api
-    kuma -->|Webhook autenticado| n8n[n8n]
-    n8n --> store[Persistência local de incidentes]
+    zabbix[Zabbix · entrega 03 em implementação] -.->|HTTP interno: /health| api
+    collector[Coletor agregado · ainda não implementado] -.->|Admin REST: leitura de eventos| keycloak
+    zabbix -.->|HTTP interno autenticado| collector
+    zabbix --- db[PostgreSQL exclusivo do monitoramento]
+    zabbix -.->|Integração futura · entrega 04| n8n[n8n · não implementado]
+    n8n -.-> store[Persistência de incidentes · a definir]
 ```
 
 | Componente | Responsabilidade | Não deve fazer |
@@ -29,13 +32,15 @@ flowchart TD
 | API | Representar o serviço interno e responder ao health check | Gerenciar credenciais ou executar recuperação privilegiada |
 | OAuth2 Proxy | Validar sessão e aplicar autorização antes de encaminhar à API | Liberar acesso apenas porque o login funcionou |
 | Keycloak | Autenticar identidades e exigir TOTP no fluxo definido | Ser apresentado como uma plataforma ZTNA completa |
-| Uptime Kuma | Detectar disponibilidade interna e emitir eventos | Ser a única prova de funcionamento do acesso do usuário |
+| Zabbix | Detectar disponibilidade, avaliar agregado de falhas de login e registrar problemas/recuperações | Ser SIEM ou prova de ataque confirmado; confundir ausência de coleta com saúde |
+| PostgreSQL do Zabbix | Persistir configuração, histórico e eventos do monitoramento | Ser apresentado como banco da futura automação sem decisão na SPEC 04 |
+| Coletor interno, futuro nesta entrega | Ler eventos com client técnico view-events e retornar agregado sanitizado | Usar administrador/gateway, alterar usuários ou expor logs/tokens brutos |
 | n8n | Validar eventos e coordenar o ciclo de incidentes | Controlar o Docker ou executar ações privilegiadas |
 | Persistência de incidentes | Manter estado consultável após reinícios | Ser confundida com o histórico temporário de execuções do n8n |
 
 O armazenamento pode usar um recurso já disponível ou exigir um componente adicional. Essa escolha permanece aberta até a SPEC de automação; não adicionar um banco apenas por antecipação.
 
-No fechamento da entrega 02, somente API, Keycloak e gateway estão implementados nesse diagrama. Uptime Kuma/n8n representam o desenho inicial futuro, não containers existentes. A intenção de usar Zabbix requer revisar SPEC/PLAN 03 e impacto nos incidentes antes de implementar ou substituir requisitos.
+API, Keycloak e gateway pertencem à entrega 02 concluída. Overlay de disponibilidade Zabbix escrito após aprovação, com validações e execução registradas no PLAN/evidências 03. Tracejado não é prova de fluxo executado. Kuma foi substituído no desenho, não removido do runtime: nunca foi instalado. Coletor e n8n ainda não executam; problema único do Zabbix não comprova deduplicação da automação futura.
 
 ## 3. Acesso e identidade
 
@@ -65,9 +70,11 @@ Topologia lógica proposta:
 | --- | --- | --- |
 | Identidade | Gateway e Keycloak | Comunicação OIDC |
 | Serviço | Gateway, API e monitor | Encaminhamento e health check |
-| Eventos | Monitor e n8n | Entrega de webhooks |
+| Monitoring, interna | Banco, server, frontend; coletor futuro | Comunicação do monitoramento e métricas agregadas |
+| Operations, bridge não interna | Frontend Zabbix | Publicação do painel exclusivamente em loopback |
+| Eventos, futura | Zabbix e n8n, desenho a definir na entrega 04 | Integração ainda não implementada |
 
-A rede `identity` foi implementada como bridge **não interna**, após aprovação explícita D04: a tentativa interna suprimiu os bindings no host neste Docker. Somente os serviços de identidade ganham rota de saída; isso não comprova bloqueio de egress. `service` permanece `internal: true`, API somente nela e sem porta. Rede de eventos/participantes futuros continuam planejados. Não foi realizado teste de egress contra sistemas externos. Configuração e evidências ficam na [SPEC 02](features/02-identity-access/SPEC.md) e seu [registro](evidence/02-identity-access.md).
+A rede `identity` é bridge **não interna**, após aprovação D04; `service` permanece interna, API somente nela e sem porta. M-D03 acrescenta `monitoring` interna e `operations` não interna para o frontend; coletor futuro participará de `identity`, sem acesso a `service`. Essas bridges permitem rota de saída: não alegar egress bloqueado. Não realizar teste contra sistemas externos. Fronteiras completas na [SPEC 03](features/03-monitoring/SPEC.md); identidade preservada conforme [SPEC 02](features/02-identity-access/SPEC.md).
 
 - A API não publica porta no host.
 - Gateway, Keycloak e interfaces administrativas necessárias publicam portas somente em loopback.
@@ -83,9 +90,13 @@ HTTP estritamente local, cookies sem Secure onde necessário e modo de desenvolv
 
 A solução deve registrar URLs, confiança de certificados, comportamento dos cookies e eventuais exceções. Caso HTTP seja escolhido para a PoC, não apresentar o tráfego como cifrado, não usar credenciais reais e documentar o limite local. Não espalhar desativações de TLS ou de verificação de tokens como atalho.
 
+M-D02 aprova frontend em `http://localhost:8081`, somente `127.0.0.1`, e transporte local sem TLS entre componentes de monitoramento. PostgreSQL usa protocolo próprio com senha SCRAM nas conexões TCP, não HTTP; o socket local usa peer com usuário postgres. Credenciais exclusivas e contas fictícias, host/daemon confiáveis. Cookies e proteção do painel ainda precisam de validação; aprovação não é comprovação de segurança.
+
 ## 6. Monitoramento e incidentes
 
 O monitor consulta `/health` pela rede interna. Isso mede disponibilidade HTTP da API, não todo o caminho do usuário nem a saúde do provedor de identidade.
+
+O cenário de segurança aprovado é agregado de `LOGIN_ERROR` do client `secureops-gateway`: cinco eventos em cinco minutos. Coletor proposto lê Admin REST com `view-events` (leitura do realm inteiro), entrega só contagem e qualidade ao Zabbix e não converte falhas em zero. Eventos brutos ficam no Keycloak por retenção aprovada; configuração existente será revisada antes de habilitar armazenamento. Fonte e limites detalhados apenas na SPEC 03.
 
 ```text
 API indisponível → monitor detecta → webhook → validação → incidente aberto
@@ -123,7 +134,7 @@ Volumes não substituem backups e não garantem integridade ou auditoria imutáv
 | --- | --- |
 | Fundação: versões, porta interna e rede definidas; execução validada e snapshot de consumo registrado | [SPEC 01 — Fundação local](features/01-local-foundation/SPEC.md) e [evidências](evidence/01-local-foundation.md) |
 | D01–D04 aprovadas e identidade concluída, com limites e resultados registrados | [SPEC 02 — Identidade e acesso](features/02-identity-access/SPEC.md) e [evidências](evidence/02-identity-access.md) |
-| Transporte/rede do painel, persistência, intervalos, retries e payload real de notificação; propostas ainda não aprovadas | [SPEC 03 — Monitoramento](features/03-monitoring/SPEC.md) |
+| M-D01–M-D06 aprovadas; implementação/validação de disponibilidade e cenário de autenticação em andamento | [SPEC 03 — Monitoramento](features/03-monitoring/SPEC.md) |
 | Autenticação do webhook, armazenamento e consistência dos eventos | SPEC 04 — Automação de incidentes |
 
 ## 9. Limites da demonstração

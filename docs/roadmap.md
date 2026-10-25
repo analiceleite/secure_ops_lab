@@ -1,6 +1,6 @@
 # Roadmap de implementação
 
-> Status: Fundação Local concluída em 24/10/2026; Identidade concluída em 25/10/2026, IA-01–IA-12 consolidados. Monitoramento em especificação: rascunho inicial precisa ser revisto para a intenção de usar Zabbix, inclusive impacto nos incidentes. Nenhum monitor implementado; demais entregas não iniciadas.
+> Status: Fundação Local e Identidade concluídas. Monitoramento com Zabbix em implementação após aprovação explícita M-D01–M-D06 em 25/10/2026: disponibilidade primeiro, depois cenário de falhas de autenticação. Coleta ainda não implementada; n8n fica para entrega 04, sem IA. Nenhum critério 03 é presumido pela aprovação.
 
 ## Como usar
 
@@ -21,7 +21,7 @@ Não marcar uma entrega como concluída com base apenas em código gerado ou lei
 02 + 03 + 04 → 05 Validação integrada e demonstração
 ```
 
-A ordem sugerida de trabalho é 01 → 02 → 03 → 04 → 05. O monitoramento depende da fundação. Em 25/10, a autora solicitou preparar SPEC/PLAN 03 em paralelo à identidade ainda parcial; essa antecipação documental não autoriza implementar a entrega 03, contornar controles nem dispensar as validações da entrega 02.
+A ordem é 01 → 02 → 03 → 04 → 05. Disponibilidade depende da fundação; cenário de segurança também depende da identidade. Após o rascunho antecipado e fechamento 02, a autora aprovou a substituição por Zabbix e autorizou a implementação gradual; essa aprovação não dispensa validações nem autoriza ampliar escopo.
 
 ## Visão geral
 
@@ -29,11 +29,11 @@ A ordem sugerida de trabalho é 01 → 02 → 03 → 04 → 05. O monitoramento 
 | --- | --- | --- |
 | 01 — Fundação local | Concluída | `features/01-local-foundation/{SPEC,PLAN}.md` |
 | 02 — Identidade e acesso | Concluída | [SPEC](features/02-identity-access/SPEC.md) / [PLAN](features/02-identity-access/PLAN.md) |
-| 03 — Monitoramento | Em especificação | [SPEC](features/03-monitoring/SPEC.md) / [PLAN](features/03-monitoring/PLAN.md) |
+| 03 — Monitoramento | Em implementação | [SPEC](features/03-monitoring/SPEC.md) / [PLAN](features/03-monitoring/PLAN.md) |
 | 04 — Automação de incidentes | Não iniciada | `features/04-incident-automation/{SPEC,PLAN}.md` |
 | 05 — Validação integrada e demonstração | Não iniciada | Checklist transversal, runbook e evidências |
 
-Os caminhos da tabela são relativos a `docs/`. Identidade possui [matriz final de aceite](evidence/02-identity-access.md), [PLAN concluído](features/02-identity-access/PLAN.md) e [runbook](runbooks/identity-access.md). Fechamento combinou relatos manuais da autora (MFA/acesso/403/sessão/logout/retomada) com inspeção real de redes/portas/falhas e harness isolado do mesmo proxy. Regressão final em 25/10: 35 API + 10 estáticos + 12 verificações isoladas aprovados. D04 não demonstra egress bloqueado; API segue somente em rede interna sem porta. Próximo passo é revisão documental para Zabbix, não instalação automática nem substituição silenciosa dos critérios de incidentes.
+Os caminhos são relativos a `docs/`. Identidade possui [matriz final](evidence/02-identity-access.md), [PLAN concluído](features/02-identity-access/PLAN.md) e [runbook](runbooks/identity-access.md); regressão do fechamento: 35 API + 10 estáticos + 12 verificações isoladas aprovados. API segue somente em rede interna sem porta. Zabbix substitui o desenho Kuma; problemas/recuperações nativos não substituem os critérios futuros de automação. Estado real da nova infraestrutura no PLAN 03.
 
 ## 01 — Fundação local
 
@@ -77,14 +77,15 @@ Critérios de saída:
 
 ## 03 — Monitoramento
 
-**Resultado:** o monitor detecta queda e recuperação da API pela rede interna.
+**Resultado esperado:** Zabbix detecta queda/recuperação da API e falhas repetidas de autenticação, sem confundir falha da coleta com ausência de erros.
 
 Escopo da especificação:
 
-- Configurar Uptime Kuma, persistência e administração local.
-- Definir intervalos, tolerância a falhas e notificações de estado.
-- Inspecionar e documentar o payload real da integração com webhook.
-- Definir procedimento seguro de parar e iniciar apenas o container da API.
+- Configurar Zabbix server/frontend/PostgreSQL com persistência e administração local.
+- Detectar disponibilidade interna e ausência de resultados; testar dois ciclos de queda/recuperação.
+- Ler eventos do Keycloak com client técnico restrito, entregando somente agregado sanitizado.
+- Alertar com pelo menos cinco LOGIN_ERROR em cinco minutos e detectar falha da própria coleta.
+- Preservar identidade/MFA e preparar referências de eventos, sem webhook/n8n nesta entrega.
 
 Critérios de saída:
 
@@ -94,6 +95,7 @@ Critérios de saída:
 - [ ] Reiniciar a API provoca detecção de recuperação.
 - [ ] Configuração do monitor sobrevive a reinício sem exclusão do volume.
 - [ ] Tempos observados e limites da verificação interna estão documentados.
+- [ ] Regra de autenticação, falhas de coleta, persistência e regressão verificadas conforme MO-01–MO-10 da SPEC.
 
 ## 04 — Automação de incidentes
 

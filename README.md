@@ -4,7 +4,7 @@ Laboratório pessoal de operações de TI e segurança para praticar controle de
 
 O projeto simula a operação de um serviço interno: somente usuários autorizados podem acessá-lo e, quando ele fica indisponível, um fluxo automatizado registra o incidente e acompanha sua recuperação.
 
-> **Status:** Fundação Local e Identidade concluídas em 25/10/2026. Operadora com MFA autorizada, visitante negada, sessão/logout, persistência e falhas validados por testes técnicos e confirmações manuais. Regressão final: **35 testes API + 10 estáticos de identidade + 12 verificações OIDC isoladas aprovados**. Monitoramento/automação ainda não implementados; próxima revisão de SPEC/PLAN avaliará Zabbix.
+> **Status:** Fundação Local e Identidade concluídas em 25/10/2026. Monitoramento com Zabbix em implementação: PostgreSQL/server/frontend executando, **42 checks de infraestrutura aprovados**; cenário web e coleta de segurança ainda não configurados. Regressão antecipada **35 API + 10 estáticos + 12 verificações OIDC aprovados**. Próximo gate: troca da senha inicial do painel pela autora. n8n fica para a entrega 04, sem IA.
 
 ## Objetivo
 
@@ -56,7 +56,8 @@ A Fundação Local usa `service` interna, sem volumes nem portas da API. O overl
 | Node.js + TypeScript | Serviço fictício com página simples e endpoint de saúde |
 | Keycloak | Gerenciar usuários, grupos e MFA com TOTP |
 | OAuth2 Proxy | Integrar autenticação OIDC e restringir o acesso à aplicação |
-| Monitoramento / incidentes | Rascunho inicial Uptime Kuma + n8n; revisão para Zabbix solicitada, ainda sem implementação |
+| Zabbix + PostgreSQL | Monitoramento de disponibilidade e falhas repetidas de autenticação; em implementação |
+| n8n | Automação futura na entrega 04; não implementada |
 | Docker Compose | Orquestrar serviços, redes e volumes locais |
 
 O mecanismo de persistência dos incidentes será escolhido nas especificações, priorizando simplicidade, consulta e reprodução dos testes.
@@ -206,7 +207,8 @@ Para inspecionar bindings, usuário efetivo, redes e logs de saúde, siga o [run
 
 ## Próximos passos
 
-1. Revisar [SPEC/PLAN 03](docs/features/03-monitoring/SPEC.md) para a intenção de usar Zabbix, definindo também impacto no escopo de incidentes antes de implementar. O rascunho atual ainda descreve Uptime Kuma; não é um desenho Zabbix aprovado.
+1. Implementar e validar a [entrega 03 — Zabbix](docs/features/03-monitoring/SPEC.md) pelo [PLAN](docs/features/03-monitoring/PLAN.md): disponibilidade primeiro, depois coleta restrita de eventos do Keycloak. Não iniciar n8n nesta entrega.
+   Infraestrutura já ativa em **http://localhost:8081/**; seguir o [runbook parcial](docs/runbooks/monitoring.md) para primeiro acesso seguro. [Evidências](docs/evidence/03-monitoring.md) distinguem infraestrutura de monitoramento funcional ainda pendente.
 2. Reproduzir a entrega 02 pelo [runbook](docs/runbooks/identity-access.md). Para os testes técnicos de tokens/cookies, executar `./scripts/Test-IdentityVerifier.ps1` com imagens locais disponíveis; não enviar segredos nem callbacks ao chat.
 3. Seguir para monitoramento, incidentes e demonstração integrada conforme o [roadmap](docs/roadmap.md), sem considerar a conclusão de identidade como conclusão do projeto inteiro.
 

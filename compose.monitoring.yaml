@@ -1,0 +1,120 @@
+# Somar a compose.yaml; identidade nao e dependencia da disponibilidade.
+x-monitoring-runtime: &monitoring-runtime
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: "no"
+  stop_grace_period: 30s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-zabbix-db: &zabbix-db
+  DB_SERVER_HOST: zabbix-db
+  DB_SERVER_PORT: "5432"
+  POSTGRES_DB: zabbix
+  POSTGRES_USER: zabbix
+  POSTGRES_PASSWORD_FILE: /run/secrets/monitoring-zabbix-db
+  DEBUG_MODE: "false"
+
+services:
+  zabbix-db:
+    <<: *monitoring-runtime
+    image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+    user: "999:999"
+    mem_limit: 512m
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/monitoring-postgres-bootstrap
+      # Peer no socket local; conexoes TCP exigem senha SCRAM, nunca trust.
+      POSTGRES_INITDB_ARGS: --auth-local=peer --auth-host=scram-sha-256
+    secrets: [monitoring-postgres-bootstrap, monitoring-zabbix-db]
+    networks: [monitoring]
+    volumes:
+      - zabbix-db-data:/var/lib/postgresql/data
+      - type: bind
+        source: ./infra/monitoring/10-create-zabbix-db.sh
+        target: /docker-entrypoint-initdb.d/10-create-zabbix-db.sh
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -d, postgres]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  zabbix-server:
+    <<: *monitoring-runtime
+    image: zabbix/zabbix-server-pgsql:alpine-7.0.32@sha256:401dc90cff398aaf6a0fa72625f4b9b57407e61231f94e13e7f4e68aeff0c42c
+    user: "1997:1995"
+    mem_limit: 512m
+    environment:
+      <<: *zabbix-db
+      ZBX_ALLOWSOFTWAREUPDATECHECK: "0"
+      ZBX_ENABLEGLOBALSCRIPTS: "0"
+      ZBX_STARTPINGERS: "0"
+      ZBX_STARTDISCOVERERS: "0"
+    secrets: [monitoring-zabbix-db]
+    networks: [monitoring, service]
+    depends_on:
+      zabbix-db:
+        condition: service_healthy
+    # Cobrir VOLUMEs declarados na imagem sem criar dados anonimos descartaveis.
+    # Export/SNMP nao sao usados nesta entrega; dados persistem no PostgreSQL.
+    tmpfs:
+      - /var/lib/zabbix/export:uid=1997,gid=1995,mode=0700,size=1m
+      - /var/lib/zabbix/snmptraps:uid=1997,gid=1995,mode=0700,size=1m
+
+  zabbix-web:
+    <<: *monitoring-runtime
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-7.0.32@sha256:a54ce2e19aaf0a61609e4bbc7ec01c16bef504e6e1c51e3854120ac76d2dbaeb
+    user: "1997:1995"
+    mem_limit: 384m
+    environment:
+      <<: *zabbix-db
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_NAME: SecureOps Lab
+      PHP_TZ: America/Sao_Paulo
+      ZBX_DB_ENCRYPTION: "false"
+      ZBX_ALLOW_HTTP_AUTH: "false"
+      EXPOSE_WEB_SERVER_INFO: "off"
+      PHP_FPM_PM_MAX_CHILDREN: "3"
+      PHP_FPM_PM_START_SERVERS: "1"
+      PHP_FPM_PM_MIN_SPARE_SERVERS: "1"
+      PHP_FPM_PM_MAX_SPARE_SERVERS: "2"
+    secrets: [monitoring-zabbix-db]
+    ports:
+      - "127.0.0.1:8081:8080"
+    networks: [monitoring, operations]
+    depends_on:
+      zabbix-db:
+        condition: service_healthy
+      zabbix-server:
+        condition: service_started
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, --max-time, "3", http://127.0.0.1:8080/ping]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+networks:
+  monitoring:
+    driver: bridge
+    internal: true
+  operations:
+    driver: bridge
+    internal: false
+
+volumes:
+  zabbix-db-data:
+
+secrets:
+  monitoring-postgres-bootstrap:
+    file: ./.local/monitoring/postgres-bootstrap-password
+  monitoring-zabbix-db:
+    file: ./.local/monitoring/zabbix-db-password

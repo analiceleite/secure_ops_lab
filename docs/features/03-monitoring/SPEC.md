@@ -1,114 +1,195 @@
-# SPEC 03 — Monitoramento
+# SPEC 03 — Monitoramento com Zabbix
 
-**Estado:** em especificação. Rascunho inicial com Uptime Kuma, solicitado em 25/10/2026. Após conclusão da identidade, autora manifestou intenção de usar Zabbix; este documento ainda precisa dessa revisão, incluindo fronteira com incidentes. Decisões abaixo não estão aprovadas; nenhum monitor implementado.
+**Estado:** em implementação, iniciada em 25/10/2026. A autora aprovou explicitamente M-D01–M-D06 e a sequência de implementação após a revisão documental. Disponibilidade primeiro, coleta de segurança depois; n8n fica para a entrega 04, sem IA. Aprovação não comprova viabilidade ou critérios de aceite; resultados reais no [PLAN](PLAN.md).
 
-Referências: [README](../../../README.md), [arquitetura](../../architecture.md), [roadmap](../../roadmap.md), [Fundação Local](../01-local-foundation/SPEC.md) e [PLAN](PLAN.md).
+Referências: [README](../../../README.md), [arquitetura](../../architecture.md), [roadmap](../../roadmap.md), [Fundação Local](../01-local-foundation/SPEC.md), [Identidade e acesso](../02-identity-access/SPEC.md) e [PLAN](PLAN.md).
 
-## 1. Objetivo e dependências
+## 1. Objetivo, estado real e substituição do rascunho
 
-Detectar indisponibilidade e recuperação da API fictícia pelo Uptime Kuma, mantendo monitor e dados independentes do container monitorado. Preparar a integração com a entrega 04 a partir de notificações reais, sem implementar o ciclo de incidentes nesta entrega.
+Demonstrar no Zabbix dois resultados distintos:
 
-A Fundação Local e a Identidade estão concluídas: API somente na rede `service` interna, sem porta no host, com `/health` e probe; gateway aplica MFA/autorizações conforme evidências da entrega 02. Este rascunho foi escrito em paralelo antes do fechamento e não implementa monitoramento nem altera a identidade.
+1. **Disponibilidade:** detectar queda e recuperação da API pela rede Docker.
+2. **Segurança de acesso:** sinalizar pelo menos cinco eventos de falha de autenticação em cinco minutos no client da aplicação, usando eventos do Keycloak.
 
-O monitoramento interno não atravessa o gateway e não usa credenciais de usuário. Isso é uma verificação operacional na rede Docker, não uma exceção pública de autenticação. `/health` pelo gateway continua protegido conforme SPEC 02.
+Fundação e identidade estão concluídas. `compose.yaml` mantém API somente em `service` interna, sem publicação de porta ou mounts. `compose.identity.yaml` implementa Keycloak 26.8.1 e OAuth2 Proxy. O gateway exige MFA e grupo exato; logs de requisição e autenticação estão desabilitados. Não existe Kuma, Zabbix, coletor ou n8n implementado.
 
-## 2. Escopo
+Esta SPEC **substitui integralmente** o rascunho Kuma: porta 3001, banco embutido, volume `kuma-data`, heartbeats e payloads `heartbeat/monitor/msg` deixam de orientar a implementação. Referências a Kuma no README, arquitetura e roadmap são o desenho anterior, não uma alternativa a implementar. Alinhar esses documentos na preparação da implementação, sem alterar o estado concluído da entrega 02. Não interpretar a substituição como remoção de serviço ou volume existente: não há Kuma instalado.
+
+A verificação interna de `/health` não atravessa gateway nem usa credenciais de usuário; não cria bypass público. Eventos de login do Keycloak não medem todas as requisições à API nem as negações de autorização do gateway.
+
+## 2. Escopo e fronteiras
 
 Incluído:
 
-- Um Uptime Kuma local, um administrador fictício e um monitor da API.
-- Painel autenticado em loopback e persistência em volume nomeado local.
-- Verificação HTTP periódica, detecção de queda/recuperação e medição dos tempos observados.
-- Dois ciclos controlados de parada/retorno da API e persistência após reinício/recriação do monitor.
-- Captura sanitizada de notificações reais em receptor de teste temporário, exclusivamente na rede Docker.
-- Runbook de configuração manual e evidências reproduzíveis.
+- Zabbix server, frontend e PostgreSQL locais, com persistência independente da API.
+- Um host lógico `secureops-api`, cenário web interno e problemas/recuperações nativos do Zabbix.
+- Um coletor mínimo de eventos, com leitura restrita no Keycloak e saída agregada autenticada para o Zabbix.
+- Um alerta agregado de `LOGIN_ERROR` do client `secureops-gateway`, no realm `secureops-lab`.
+- Um alerta técnico de ausência/falha da coleta, para não confundir falta de observação com ausência de erros.
+- Dashboard pequeno: disponibilidade, contagem recente, estado da coleta e problemas ativos.
+- Testes reais controlados, persistência, regressão, runbook e evidências sanitizadas.
 
-Fora do escopo: n8n, banco de incidentes, deduplicação, fila, garantia de entrega, notificações externas, status page pública, monitoramento do Docker por socket, autorrecuperação e verificação sintética de login/gateway. Não adicionar endpoint de falha à API.
+Fora do escopo: n8n, IA, SMTP/e-mail, webhook/receptor de captura, armazenamento externo de incidentes, filas, autorrecuperação, bloqueio automático de contas, alteração de permissões por alertas, Docker socket, agente no host, SIEM/WAF, atribuição de ataques e login sintético com senha/TOTP armazenados. Não criar endpoint de falha ou administrativo na API.
 
-## 3. Decisões propostas — aprovação pendente
+Não ampliar agora para monitorar recursos do host, todos os serviços ou todas as categorias de eventos. O problema de coleta é uma salvaguarda do cenário escolhido, não monitoramento completo do Keycloak.
 
-| ID | Proposta | Motivo e limite |
+## 3. Decisões técnicas aprovadas
+
+Escopo funcional, limiar e M-D01–M-D06 aprovados explicitamente pela autora em 25/10/2026, em resposta à apresentação dos riscos de HTTP local, redes, leitura de eventos do realm e retenção. Mudanças nesses limites exigem nova revisão.
+
+| ID | Proposta | Justificativa e limite |
 | --- | --- | --- |
-| M-D01 | Painel `http://localhost:3001`, publicação `127.0.0.1:3001:3001`; HTTP local com conta fictícia | Simplifica o lab; senha/sessão não cifradas. A exceção da identidade não aprova automaticamente este novo painel. Confirmar cookies e limites antes de aplicar; não desligar proteções por tentativa e erro. |
-| M-D02 | Kuma em `service` interna e rede `operations` bridge não interna; API permanece somente em `service` | A rede adicional permite testar publicação do painel sem depender de publicação em rede exclusivamente interna, que falhou na identidade. Kuma ganha rota de saída: não alegar bloqueio de egress. Não reutilizar `identity`. |
-| M-D03 | Volume nomeado `kuma-data` em `/app/data`; banco local suportado pela imagem, sem banco separado | Persistir configuração, histórico e dados de autenticação. Volume sensível, sem backup/HA; não exportar banco nem removê-lo para repetir testes. |
-| M-D04 | Intervalo 20 s, timeout 5 s, zero retries de confirmação e reenvio periódico de DOWN desabilitado | Demonstração curta, com menor tolerância a falhas transitórias. Uma checagem falha pode declarar DOWN. Não confundir retry de checagem com retry de webhook. |
-| M-D05 | Receptor temporário Node, reaproveitando a imagem local da API, sem porta publicada e sem dependência nova | Observar payload/entrega sem antecipar n8n. Serviço auxiliar no profile `tools`, não inicia API nem coleta headers/segredos. Não é receptor de incidentes de produção. |
+| M-D01 | Zabbix 7.0 LTS, patch candidato 7.0.32; PostgreSQL 17.11; frontend Nginx | Família documentada, imagens separadas oficiais e banco compatível. Custa mais memória e configuração que Kuma. Sem TimescaleDB, proxy, agent, Java gateway ou web service. |
+| M-D02 | Frontend em `http://localhost:8081`, publicação exclusiva `127.0.0.1:8081:8080`; comunicação local sem TLS | Exceção local: painel HTTP, sessão, protocolo PostgreSQL e tokens internos não têm confidencialidade TLS. Somente contas fictícias, host/daemon confiáveis e segredos exclusivos. Conferir cookies, logout e bloqueio sem sessão antes do aceite; não relaxar validações para fazer HTTP funcionar. |
+| M-D03 | Redes separadas conforme seção 4; PostgreSQL em volume nomeado próprio | API fica intacta. Frontend ganha rota de saída na bridge `operations`; coletor participa de `identity`, que já não é interna. Não alegar egress bloqueado ou isolamento absoluto do host. Nenhum banco/coletor/Zabbix server publicado no host. |
+| M-D04 | Coleta via Admin REST, client técnico confidencial com service account e somente `realm-management/view-events` | Reutiliza interface documentada, sem socket Docker, plugin Java nem leitura de logs brutos. A permissão permite ler eventos do realm, **não só do client da aplicação**; o filtro no coletor não é fronteira de autorização do Keycloak. Exposição desse privilégio precisa de aprovação explícita. |
+| M-D05 | Habilitar persistência de `LOGIN_ERROR` no realm, retenção de 24 h; coletor entrega somente agregado de cinco minutos | Eventos brutos permanecem no volume sensível do Keycloak e podem conter identificadores/IP/detalhes. Preservar tipos/configuração anteriores e não apagar histórico. Se a configuração existente tiver retenção/tipos conflitantes, apresentar a diferença antes de alterar. |
+| M-D06 | Cenário web a cada 20 s, timeout 5 s e uma tentativa; coleta de segurança a cada 30 s; limiar agregado ≥5 eventos/300 s | Demonstração curta. Primeiro erro da checagem web pode abrir problema; um `LOGIN_ERROR` isolado não abre o alerta de segurança. Limite não é padrão universal nem prova de ataque. |
 
-Antes de implementar, registrar aprovação ou revisar as propostas. Mudança de transporte, rede, persistência ou comportamento exige decisão explícita; não tratar valores candidatos como aprovados.
+Qualquer alternativa que mude redes, privilégios, dados armazenados, transporte ou comportamento volta à revisão. Não reutilizar administrador/bootstrap ou client secret do gateway para coletar eventos. Não desabilitar MFA, autorização, TLS validation ou proteção contra brute force. Caso proteções existentes impeçam produzir o cenário, discutir outro procedimento de teste, não enfraquecê-las.
 
-## 4. Versão e composição
+## 4. Composição e persistência propostas
 
-- Candidata: **Uptime Kuma 2.5.7**, release estável publicada em 23/10/2026, consultada em 25/10. Confirmar tag de imagem, manifesto `linux/amd64`, digest e compatibilidade antes de fixar a imagem. Não usar `latest` nem tag major mutável na implementação.
-- Overlay proposto `compose.monitoring.yaml`, preservando os comandos da fundação e da identidade. Composição base + monitoramento deve funcionar sem iniciar Keycloak/gateway; validar também a composição dos três arquivos.
-- Serviços propostos: `uptime-kuma` e auxiliar `webhook-capture`; redes/volume apenas após aprovação. A rede de eventos com n8n será definida na entrega 04, sem criar conectividade futura por conveniência.
-- Sem `privileged`, Docker socket, host network ou capacidades extras. Conferir suporte da imagem a usuário não root e retirada de capabilities. Se houver incompatibilidade, parar e apresentar a necessidade; não executar como root silenciosamente.
-- Rotação de logs proposta: `json-file`, 10 MiB por arquivo e três arquivos, como na fundação. Histórico de heartbeats: propor sete dias, confirmando suporte/configuração na versão; não declarar política aplicada antes de verificar.
-- Espera inicial finita proposta: 120 s; parada graciosa: 30 s. Limite inicial candidato de memória: 512 MiB, sujeito a medição e revisão; não é dimensionamento comprovado. Não instalar curl apenas para inventar um health check.
+Overlay futuro: `compose.monitoring.yaml`. Disponibilidade deve funcionar com base + monitoramento sem iniciar identidade; coletor fica em profile explícito, usado com base + identidade + monitoramento. Profiles do Compose selecionam serviços, **não habilitam/desabilitam itens ou triggers no banco do Zabbix**: documentar também como habilitar o cenário de segurança no modo completo e deixá-lo desabilitado no modo somente disponibilidade, sem excluir seu histórico. Confirmar semântica dos profiles na configuração resolvida; não criar dependência que inicie Keycloak para executar só health checks.
 
-## 5. Monitor e administração
+| Serviço proposto | Redes | Responsabilidade |
+| --- | --- | --- |
+| `zabbix-db` | `monitoring` interna | Banco exclusivo do Zabbix, volume `zabbix-db-data`; sem porta no host |
+| `zabbix-server` | `monitoring`, `service` | Cenário web, itens HTTP, triggers e eventos; sem publicação de 10051 |
+| `zabbix-web` | `monitoring`, `operations` bridge não interna | Frontend autenticado, única publicação nova em loopback |
+| `identity-event-collector` | `monitoring`, `identity` | Ler eventos do Keycloak; endpoint agregado interno autenticado, sem porta no host ou acesso ao volume Keycloak |
 
-| Campo | Valor proposto |
+API continua somente em `service`. Keycloak/gateway mantêm redes, portas e credenciais existentes. O coletor não participa de `service`; server/frontend não participam de `identity`. `operations` resolve publicação do frontend sem pressupor que rede exclusivamente interna publique corretamente neste Docker. Testar os bindings reais.
+
+### Versões candidatas consultadas, não executadas
+
+Consultas HTTP de metadados oficiais em 25/10/2026 confirmaram tags e manifesto `linux/amd64`. Digests abaixo são do índice retornado pelo Docker Hub, não resultado de pull ou teste de compatibilidade:
+
+| Imagem candidata | Digest do índice consultado |
 | --- | --- |
-| Nome lógico | `secureops-api` |
-| Tipo | HTTP(s), GET |
-| Destino | `http://api:3000/health` |
-| Código aceito | Somente 200 |
-| Intervalo / timeout | 20 s / 5 s |
-| Retries de confirmação | 0 |
-| Reenvio periódico durante DOWN | Desabilitado |
-| Credenciais/headers da API | Nenhum |
-| Redirects | Não seguir; confirmar opção suportada na versão |
+| `zabbix/zabbix-server-pgsql:alpine-7.0.32` | `sha256:401dc90cff398aaf6a0fa72625f4b9b57407e61231f94e13e7f4e68aeff0c42c` |
+| `zabbix/zabbix-web-nginx-pgsql:alpine-7.0.32` | `sha256:a54ce2e19aaf0a61609e4bbc7ec01c16bef504e6e1c51e3854120ac76d2dbaeb` |
+| `postgres:17.11-bookworm` | `sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27` |
 
-Este monitor comprova resposta HTTP 200 no destino fixo. O probe da fundação continua verificando o contrato mais estrito: `Content-Type: application/json` e corpo exato `{"status":"ok"}`. Não atribuir ao monitor simples uma validação de JSON que ele não executa. Resposta inesperada/redirect deve ser testada no auxiliar isolado, sem modificar a API nem mudar o monitor principal permanentemente.
+Zabbix 7.0 documenta PostgreSQL 17 a partir de 7.0.6. Revalidar patches, manifesto, variáveis, health checks, usuário e caminhos de dados antes de fixar tag+digest no Compose; não usar `latest` nem atualização silenciosa. Coletor deve reaproveitar Node/imagem local, sem framework ou biblioteca nova por conveniência.
 
-A autora cria a conta administrativa com senha exclusiva local, sem enviar segredo ao chat. Registrar configuração pela interface e passos repetíveis; não depender de API interna não documentada nem editar o banco. Painel sem sessão não deve liberar dados administrativos nem alterações. Não criar status page pública. Qualquer necessidade de relaxar cookie/transporte volta à revisão M-D01 antes da aplicação.
+Requisitos de implementação:
 
-## 6. Detecção, falhas e medição
+- Sem privileged, host network, socket Docker, capabilities extras ou execução root silenciosa. Verificar inicialização do volume PostgreSQL com usuário/permissões adequados; incompatibilidade bloqueia o gate, não autoriza exceção automática.
+- Papel de banco dedicado ao Zabbix; não usar superusuário de bootstrap como credencial permanente de server/frontend. Confirmar privilégios necessários de criação/migração de schema na versão.
+- Segredos exclusivos em `.local/monitoring/`, ignorados e fora do build/Git, com mounts read-only quando suportados. Nenhuma senha literal no Compose, comandos versionados, exports ou logs. Client técnico não aceita login interativo, password grant ou redirects de aplicação.
+- Trocar senha administrativa padrão e desabilitar acesso guest antes da validação; autora mantém senhas no ambiente, sem enviá-las ao chat.
+- Banco preserva configuração, histórico e eventos do Zabbix; não exportar seu conteúdo bruto. Volume não é backup. Coletor não persiste cópia dos eventos ou tokens; token de serviço, se cacheado, fica apenas em memória e é renovado de modo limitado.
+- Histórico de itens de sete dias e retenção de eventos do Zabbix de sete dias aprovados, ainda a configurar em T03, verificando limites e housekeeping suportados. Distinguir política configurada de expurgo efetivamente observado; não esperar sete dias nem apagar dados para simular aceite.
+- Logs rotacionados: 10 MiB × 3 por serviço, sem debug/trace que exponha HTTP. Medir consumo com todos os serviços do cenário; não reutilizar limite de 512 MiB do Kuma como dimensionamento do conjunto.
+- Limites iniciais definidos após inspeção do daemon (7,61 GiB, 12 CPUs): PostgreSQL 512 MiB, server 512 MiB, frontend 384 MiB; coletor terá limite definido em T06 antes da subida. São tetos iniciais, não dimensionamento comprovado. Espera inicial finita de 180 s e parada graciosa de 30 s. Se insuficiente, registrar causa e revisar, não esperar indefinidamente.
 
-1. Iniciar API e Kuma, aguardar prontidão e pelo menos dois heartbeats saudáveis.
-2. Registrar instante/fuso e parar **somente** `api`; não usar `down`.
-3. Confirmar DOWN e que Kuma/receptor continuam executando; manter a API parada por pelo menos dois intervalos adicionais.
-4. Retomar API sem mudar configuração/volume; aguardar probe saudável e observar UP.
-5. Repetir o ciclo, sem limpar o histórico, para demonstrar repetibilidade.
+## 5. Disponibilidade da API
 
-Meta local proposta: detectar DOWN e UP em até **60 s** de cada mudança efetiva, com Docker operacional. Registrar separadamente início do comando, confirmação da parada/saúde, heartbeat e recebimento do webhook. Intervalo/timeout não garantem prazo exato; se superar a meta, registrar falha/investigar, não ajustar evidência. Não confundir duração observada com instante exato da indisponibilidade.
+Usar **web scenario** executado pelo Zabbix server, pois falha de conexão precisa resultar em falha observável do cenário. Um item HTTP que fica unsupported não deve ser tratado automaticamente como zero/serviço saudável.
 
-Durante parada do Kuma não existe observação contínua: o retorno não deve ser apresentado como reconstrução garantida de eventos perdidos. Reinício e recriação apenas do container, sem remover o volume, devem preservar conta, monitor e histórico; comprovar por nova autenticação, consulta do histórico e novo ciclo.
+| Campo | Contrato proposto |
+| --- | --- |
+| Host / cenário / etapa | `secureops-api` / `api-health` / `health` |
+| Método / destino | GET `http://api:3000/health` |
+| Intervalo / timeout / tentativas | 20 s / 5 s / 1 |
+| Código exigido / redirects | Somente 200 / não seguir |
+| Autenticação / headers sensíveis | Nenhum |
+| Conteúdo | Resposta HTTP 200; probe existente valida separadamente Content-Type e JSON exato |
 
-## 7. Preparação do webhook, sem automação
+Trigger de disponibilidade usa o item de falha do cenário (`web.test.fail`), com expressão validada na versão: valor diferente de zero abre problema; execução válida com zero recupera. Modo de geração de problemas **Single**, sem fechamentos manuais para substituir recuperação real. Incluir detecção de ausência de resultados para que último sucesso antigo não seja exibido como saúde atual; `nodata` de 90 s é candidato a validar.
 
-- Configurar provider **Webhook**, método POST e corpo JSON padrão, direcionado somente ao receptor temporário na rede Docker. Confirmar opções na versão antes de configurar.
-- Código 2.5.7 consultado monta `heartbeat`, `monitor` e `msg`; teste de notificação pode ter objetos nulos. Esses nomes são análise de fonte, não payload já observado. A integração 04 só deve fixar campos/status/timestamps após capturar eventos reais de DOWN e UP.
-- Registrar de forma sanitizada: método, tipo de conteúdo, estrutura/campos, tipo/valor do estado, identificação fictícia do monitor, timestamps/fuso, status HTTP do receptor e sequência de chegada. Separar teste manual de notificação de uma transição real.
-- Não registrar headers de autenticação, cookies, URLs com segredo nem dumps integrais de configuração. O payload pode incluir configuração sensível do monitor; usar allowlist de campos e revisar antes de persistir evidências.
-- Receptor sem porta no host, limitado a JSON e tamanho finito a definir no PLAN de implementação. Responder 2xx apenas após aceitar o evento de teste; rejeitar entradas malformadas/maiores que o limite. Não manter estado de incidentes.
-- Parar o receptor durante uma transição e observar o erro de entrega sem derrubar o monitor. Retomar e documentar se há retry/reenvio automático; não prometer fila, replay ou entrega garantida. Em seguida, executar um novo ciclo com receptor disponível.
-- A autenticação definitiva do webhook pertence à SPEC 04. O provider consultado suporta headers adicionais, mas sua configuração segura e os caminhos negativos ainda precisam de revisão/validação nessa entrega futura. O receptor diagnóstico interno não comprova um webhook autenticado.
+Antes do ensaio, esperar duas execuções saudáveis após criação/configuração do cenário. Executar dois ciclos de parada **somente** da API e retomada preservando dados. Meta local: problema e recuperação em até **60 s** da parada confirmada/saúde confirmada, respectivamente. Registrar comando, mudança efetiva, amostra e evento; não atribuir ao monitor a duração exata da falha. Monitor e banco permanecem ativos.
 
-## 8. Critérios de aceite
+Testar alvo auxiliar isolado com 500 e redirect para demonstrar que não aparece saudável; não modificar a API nem deixar o cenário principal apontando para o auxiliar.
+
+## 6. Segurança: falhas repetidas de autenticação
+
+### Fonte e interpretação
+
+- Realm fixo `secureops-lab`, client fixo `secureops-gateway`, tipo exato `LOGIN_ERROR`.
+- Contagem **agregada do client**, não por usuário ou IP. Conta eventos, não pessoas nem necessariamente submissões únicas no navegador. Comprovar a relação entre submissão e evento no cenário real antes de apresentar o teste como cinco tentativas.
+- Falhas de senha/OTP que gerarem esse evento podem contribuir. Observar tipos/erros reais; não prometer cobertura de toda falha de MFA a partir do nome do evento.
+- Login bem-sucedido não zera a janela; 403 de visitante após autenticar é autorização negada no gateway e não deve ser reclassificado como `LOGIN_ERROR`.
+- Console de conta, administração e outros clients ficam fora do filtro. É uma regra educacional de triagem, não detecção completa de brute force, comprometimento ou ataques distribuídos.
+
+### Coletor proposto: leitura sob demanda, sem varrer logs
+
+O Zabbix consulta o coletor via item HTTP agent a cada 30 s. Endpoint interno de métricas, GET, destino fixo e autenticação por segredo compartilhado em header, distinto do secret do Keycloak. Requisições sem segredo válido recebem 401/403 e não disparam consulta ao provedor. Não aceitar URL, realm, client ou janela arbitrários do chamador. Essa é uma interface de métricas do coletor, não um novo endpoint da API monitorada.
+
+Para cada amostra:
+
+1. Obter token por client credentials com client técnico exclusivo. Não usar credencial de usuário, gateway ou administrador. Validar por ensaio que leitura é permitida e alteração de eventos/realm/usuários é negada.
+2. Ler `GET /admin/realms/secureops-lab/events/config`, verificando armazenamento habilitado, `LOGIN_ERROR` incluído e retenção compatível. Configuração desabilitada/incompatível é falha de coleta, não contagem zero.
+3. Fixar instante `t` em epoch milliseconds e consultar `GET /admin/realms/secureops-lab/events` com `client=secureops-gateway`, `type=LOGIN_ERROR`, `dateFrom=t-300000` e `dateTo=t`. A API 26.8.1 documenta filtros de tempo em milissegundos, `first`, `max` e `direction`.
+4. Validar formato, timestamps e escopo também localmente. A janela é inclusiva `[t-300000,t]`. Contar registros únicos por ID estável; ausência de ID/duplicação inconsistente não permite alegar contagem exata. Confirmar representação real antes de fechar esse contrato.
+5. Fazer consulta limitada que permita comprovar janela completa: proposta de `max=1001`, aceitando no máximo 1000 eventos. Resposta que atinge o limite, truncamento, limite efetivo diferente no servidor ou inconsistência tornam a amostra inválida; não publicar parcial como total. Se necessário outro mecanismo de paginação, revisá-lo antes de implementar, com teto de páginas/tempo e teste de duplicação/fronteiras.
+6. Responder somente versão do contrato, realm/client fictícios fixos, tamanho da janela, instante da amostra, `collection_ok` e, **apenas no sucesso completo**, `login_errors_5m`. Sem IDs de usuário/evento, e-mail, IP, detalhes de erro, URL de callback, tokens, cookies ou payload bruto.
+
+Limitar corpo de resposta aceito do Keycloak a 2 MiB, duração total de coleta a 10 s, uma consulta em andamento e sem retries ilimitados. Timeout do HTTP agent proposto de 15 s, sujeito a confirmação na imagem. Falhas usam códigos categóricos sanitizados; nunca refletir erro HTTP bruto. Resposta válida do coletor pode trazer `collection_ok=0`, sem contagem, para separar falha da fonte de indisponibilidade do coletor.
+
+Client técnico terá somente `view-events`. Análise do código 26.8.1 confirmou esse requisito tanto em `/events` quanto em `/events/config`; atualização da configuração exige `manage-events`. Isso é evidência estática, não prova de permissões no realm real. A criação/configuração inicial exige ação administrativa separada e autorizada, sem dar essa permissão ao coletor. Não montar volume do Keycloak nem ler seu banco diretamente.
+
+### Triggers, ausência de dados e recuperação
+
+- Itens dependentes extraem contagem e qualidade da resposta. **Não somar contagens sucessivas de uma janela móvel**: os mesmos eventos aparecem em várias amostras por desenho.
+- Abrir um problema de severidade proposta Warning quando uma amostra completa tem `login_errors_5m >= 5`; modo Single. Manter o mesmo problema enquanto o limiar continuar excedido.
+- Recuperar somente com nova amostra completa de contagem `<5`. Redução pode ocorrer pela passagem do tempo, não significa ameaça contida ou usuário desbloqueado. Meta: recuperação em até 60 s após a janela efetivamente cair abaixo do limiar com coleta funcionando.
+- Ausência de dados, 401/403 do provedor, configuração de eventos desabilitada, erro de schema, limite excedido ou timeout **não geram zero** e não recuperam alerta de segurança aberto. Manter último valor como histórico, claramente sem validade atual. A expressão não pode usar perda de frescor como condição que encerre o problema de segurança.
+- Falha explícita `collection_ok=0` abre problema técnico; ausência de amostras por 90 s também deve abrir problema técnico. Recuperar só com nova consulta válida. Meta de detecção da indisponibilidade da coleta: até 120 s. Não afirmar recuperação da coleta com base apenas em endpoint HTTP responder.
+- Início/reinício sem amostra válida é desconhecido, não saudável. Não executar exclusão de eventos para limpar a janela: aguardar seu esvaziamento natural. Relógios de Keycloak/coletor/Zabbix devem estar coerentes; registrar desvio e suspender a conclusão se comprometer o teste.
+
+## 7. Validação de segurança e preservação da identidade
+
+Com participação da autora e somente contas fictícias existentes:
+
+1. Confirmar janela limpa de eventos do client e coleta válida. Um erro isolado de credencial não deve gerar o problema de segurança.
+2. Completar a sequência controlada até pelo menos cinco eventos na mesma janela, em login iniciado pela aplicação; registrar horários e apenas campos permitidos. Meta de abertura: até 60 s após o quinto evento persistido. Nunca solicitar senha, OTP, token ou cookie no chat.
+3. Manter a condição por mais de uma amostra: deve existir um só problema ativo para a trigger, não um por polling.
+4. Aguardar contagem cair abaixo de cinco sem excluir eventos; observar recuperação. Repetir um segundo ciclo para comprovar nova abertura após recuperação.
+5. Demonstrar que login bem-sucedido e negação 403 da visitante não incrementam a regra; eventos de outro client não entram na contagem. Preferir testes de contrato isolados para casos difíceis e distinguir essa evidência da coleta real.
+6. Exercitar falha da fonte e do coletor separadamente, inclusive com problema de segurança aberto: nenhum zero/falsa recuperação. Usar fixture isolada para token inválido, 403, schema/limites e permissão de escrita negada quando o teste no realm real exigiria operações arriscadas. Uma fixture não comprova as permissões reais: a negativa real deve usar operação sem mudança efetiva e verificação de estado antes/depois.
+7. Confirmar operadora permitida com senha+TOTP, visitante autenticada negada, sessões conforme entrega 02, grupos/credenciais preservados. Não mudar proteção contra brute force para produzir alertas. Pausa do Keycloak não deve alterar o resultado do health check interno da API se esta continua saudável.
+
+Reiniciar/recriar apenas componentes novos, mantendo volumes, deve preservar conta, cenário, itens, triggers, dashboard e eventos Zabbix. Coletor reconstrói janela consultando eventos persistidos, sem somar contagens antigas. Não exige backup/HA e não comprova eventos ocorridos/perdidos durante indisponibilidade do próprio Keycloak ou períodos maiores que a retenção.
+
+## 8. Fronteira com a entrega 04
+
+Zabbix é a fonte dos problemas/recuperações de monitoramento desta entrega. Registrar nomes lógicos, IDs de problema/recuperação quando disponíveis, timestamps, severidade e tags estáveis propostas `service=secureops-api` e `category=availability|authentication|collection`. Exportar somente configuração suportada e sanitizada, nunca banco/credenciais.
+
+**Não configurar webhook ou instalar n8n agora.** A entrega 04 definirá o contrato real de integração, autenticação, retries, deduplicação persistente, eventos fora de ordem, responsabilidades de estado e notificação. Problema único no Zabbix não comprova deduplicação da futura automação nem entrega garantida. O antigo receptor de captura do Kuma é removido do plano, não substituído por implementação antecipada de incidentes.
+
+## 9. Critérios de aceite
 
 | ID | Critério | Evidência exigida |
 | --- | --- | --- |
-| MO-01 | Preparação e decisões resolvidas | M-D01–M-D05 aprovadas; versão/digest/opções, porta e permissões conferidos |
-| MO-02 | Exposição mínima e painel autenticado | Compose seletivo + bindings reais; loopback apenas; API sem porta e somente `service`; sem socket/privilégios; painel sem sessão não administra |
-| MO-03 | Monitor interno saudável | Dois heartbeats 200, destino correto e probe da fundação aprovado |
-| MO-04 | Queda detectada | Parada somente da API, DOWN em até 60 s, Kuma/receptor vivos e evento real recebido |
-| MO-05 | Recuperação e repetibilidade | UP em até 60 s após saúde e segundo ciclo DOWN/UP, tempos registrados |
-| MO-06 | Persistência real | Reinício e recriação do Kuma sem apagar volume preservam conta/configuração/histórico e novo monitoramento funciona |
-| MO-07 | Contrato observado de notificação | Payloads reais DOWN/UP sanitizados e distintos do teste manual; sem inferir contrato somente do código |
-| MO-08 | Falhas e limites documentados | Resposta não 200/redirect em alvo isolado; receptor indisponível; retomada e comportamento real de entrega registrados |
-| MO-09 | Regressão e reprodução | 35 testes API + 10 estáticos de identidade, probe, composições e isolamento conferidos; runbook repetido, evidências sem segredos |
+| MO-01 | Decisões e viabilidade | M-D01–M-D06 resolvidas, imagens/digests/opções, porta, permissões de volume, limites de memória e caminhos de prontidão conferidos |
+| MO-02 | Exposição mínima e administração | Configuração resolvida + bindings reais; API intacta, somente painel novo em loopback, banco/coletor/server sem publicação; painel protegido, senha padrão substituída, guest desabilitado, sem socket/root não aprovado |
+| MO-03 | Disponibilidade e limites HTTP | Duas execuções saudáveis e probe; 500/redirect em alvo isolado não saudáveis; ausência de resultados detectada |
+| MO-04 | Queda/recuperação repetíveis | Dois ciclos reais só da API, problema/recuperação em até 60 s, monitor e banco ativos, horários e identidade dos eventos registrados |
+| MO-05 | Coleta restrita e sanitizada | Client técnico de leitura real, escrita negada sem alterar dados, filtros/configuração/janela corretos, endpoint agregado autenticado e ausência de dados sensíveis na saída/logs |
+| MO-06 | Regra de segurança | Erro isolado não abre; ≥5 eventos em 5 min abre em até 60 s, um problema por condição, recuperação por janela válida e segundo ciclo; tipos reais observados e sem atribuir ataque |
+| MO-07 | Falhas não viram saúde | Fonte indisponível, coletor parado, credencial inválida, eventos desabilitados, schema/limite inválidos tratados; problema técnico até 120 s; nenhum zero/falsa recuperação do alerta aberto |
+| MO-08 | Persistência e retenção | Reinício/recriação dos componentes novos sem apagar volumes preservam conta/configuração/eventos e novo ciclo funciona; retenções configuradas e limitações de expurgo/lacunas documentadas |
+| MO-09 | Identidade preservada | Operadora com senha+OTP permitida, visitante autenticada 403, credenciais/grupos/sessões preservados; sucesso/403 não classificados como LOGIN_ERROR; indisponibilidade da fonte não implica queda da API |
+| MO-10 | Regressão e reprodução | Suites existentes de 35 API, 10 estáticos e 12 verificações OIDC isoladas, discovery/probe, composições, runbook, sanitização e evidências consistentes; diferenciar fixture, inspeção e relato manual |
 
-Concluir apenas com todos os critérios executados com sucesso. Indisponibilidade de interação da autora, incompatibilidade de imagem ou decisão em aberto deixa a tarefa pendente/bloqueada. Sucesso do monitor não fecha a identidade nem demonstra incidentes persistentes.
+Só concluir com critérios executados com sucesso. Aprovação do escopo, leitura de docs, export de template ou containers iniciados não comprovam aceite. Decisão/interação/ferramenta indisponível deixa pendência/bloqueio explícito.
 
-## 9. Fontes e saída
+## 10. Fontes consultadas e limitações desta revisão
 
-Fontes consultadas em 25/10/2026, somente leitura:
+Consultas somente leitura em 25/10/2026:
 
-- [Release 2.5.7](https://github.com/louislam/uptime-kuma/releases/tag/2.5.7).
-- [README no tag: Docker, volume e publicação loopback](https://github.com/louislam/uptime-kuma/blob/2.5.7/README.md).
-- [Campos do monitor na interface](https://github.com/louislam/uptime-kuma/blob/2.5.7/src/pages/EditMonitor.vue).
-- [Provider Webhook](https://github.com/louislam/uptime-kuma/blob/2.5.7/server/notification-providers/webhook.js).
+- [Zabbix 7.0 — containers, componentes e tags](https://www.zabbix.com/documentation/7.0/en/manual/installation/containers).
+- [Requisitos e PostgreSQL suportado](https://www.zabbix.com/documentation/7.0/en/manual/installation/requirements).
+- [Web monitoring: cenário, tentativas, código e redirects](https://www.zabbix.com/documentation/7.0/en/manual/web_monitoring).
+- [HTTP agent e comportamento unsupported](https://www.zabbix.com/documentation/7.0/en/manual/config/items/itemtypes/http).
+- [Triggers](https://www.zabbix.com/documentation/7.0/en/manual/config/triggers/trigger) e [funções de histórico/nodata](https://www.zabbix.com/documentation/7.0/en/manual/appendix/functions/history).
+- Metadados Docker Hub: [server 7.0.32](https://hub.docker.com/v2/repositories/zabbix/zabbix-server-pgsql/tags/alpine-7.0.32), [frontend 7.0.32](https://hub.docker.com/v2/repositories/zabbix/zabbix-web-nginx-pgsql/tags/alpine-7.0.32), [PostgreSQL 17.11](https://hub.docker.com/v2/repositories/library/postgres/tags/17.11-bookworm).
+- [Keycloak Admin REST 26.8.1 — eventos/configuração e filtros](https://www.keycloak.org/docs-api/26.8.1/rest-api/index.html).
+- [Keycloak 26.8.1 — implementação de autorização e consulta de eventos](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/services/resources/admin/RealmAdminResource.java).
+- [Keycloak 26.8.1 — consulta JPA e limites de tempo](https://github.com/keycloak/keycloak/blob/26.8.1/model/jpa/src/main/java/org/keycloak/events/jpa/JpaEventQuery.java).
+- [Keycloak 26.8.1 — campos da representação de evento](https://github.com/keycloak/keycloak/blob/26.8.1/core/src/main/java/org/keycloak/representations/idm/EventRepresentation.java).
+- [Administração Keycloak 26.8.1 — armazenamento e expiração de eventos](https://www.keycloak.org/docs/26.8.1/server_admin/index.html).
 
-Na implementação, criar `docs/runbooks/monitoring.md` e `docs/evidence/03-monitoring.md` apenas com procedimentos/resultados reais e sanitizados. Não há imagem baixada, monitor configurado, payload capturado ou teste de runtime realizado nesta especificação.
+Documentação online da família Zabbix pode evoluir; conferir cada opção no patch/imagem selecionado. Na revisão inicial não houve execução. Após aprovação, as três imagens fixadas foram baixadas e seus entrypoints/usuários inspecionados; resultados e estado parcial estão no PLAN e nas evidências. O formato agregado continua contrato proposto, não payload observado. Nenhum critério de segurança deve ser presumido a partir da infraestrutura de disponibilidade.
