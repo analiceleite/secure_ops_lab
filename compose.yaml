@@ -1,0 +1,52 @@
+x-runtime: &runtime
+  image: secureops-api:0.1.0
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  restart: "no"
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  api:
+    <<: *runtime
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    networks:
+      - service
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "node", "scripts/probe.mjs", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  probe:
+    <<: *runtime
+    pull_policy: never
+    profiles: [tools]
+    networks:
+      - service
+    command: ["node", "scripts/probe.mjs", "http://api:3000/health"]
+
+  api-test:
+    <<: *runtime
+    image: secureops-api-test:0.1.0
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: test
+    profiles: [tools]
+    network_mode: none
+
+networks:
+  service:
+    driver: bridge
+    internal: true

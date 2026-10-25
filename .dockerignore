@@ -1,0 +1,18 @@
+# Contexto restrito aos arquivos necessários da API.
+**
+!apps/
+!apps/api/
+!apps/api/package.json
+!apps/api/package-lock.json
+!apps/api/tsconfig.json
+!apps/api/src/
+!apps/api/src/**
+!apps/api/test/
+!apps/api/test/**
+!apps/api/scripts/
+!apps/api/scripts/**
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+**/*.log
