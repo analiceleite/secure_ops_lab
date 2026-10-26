@@ -204,6 +204,15 @@
       margin-top: 24px
     }
 
+    .section-heading {
+      margin: 32px 0 16px
+    }
+
+    .section-heading p {
+      max-width: 850px;
+      color: var(--muted)
+    }
+
     .panel {
       background: var(--white);
       border: 1px solid var(--line);
@@ -391,11 +400,11 @@
     <header>
       <div>
         <div class="eyebrow">SecureOps Lab / mapa de implementação</div>
-        <h1>Identidade na entrada.<br>API na rede interna.</h1>
-        <p>Topologia local implementada até a entrega 02. O gateway controla o acesso;
-          o Keycloak autentica; a API continua sem porta publicada no computador.</p>
+        <h1>Acesso por identidade.<br>Monitoramento independente.</h1>
+        <p>Topologia local implementada até a entrega 03. O gateway controla o acesso;
+          o Zabbix verifica a API e acompanha falhas de autenticação sem depender do container monitorado.</p>
       </div>
-      <div class="stamp"><strong>Snapshot · 25/10/2026</strong>Entrega 02 concluída<br>Documento estático, não painel ao
+      <div class="stamp"><strong>Snapshot · 26/10/2026</strong>Entregas 01–03 concluídas<br>Documento estático, não painel ao
         vivo</div>
     </header>
 
@@ -405,14 +414,18 @@
       <span class="key"><span class="swatch gray"></span>Dados/configuração locais</span>
     </div>
 
+    <div class="section-heading">
+      <h2>Entrada da aplicação · identidade e autorização</h2>
+      <p>O caminho do usuário passa pelo gateway. O monitoramento usa conexões internas separadas, detalhadas no próximo mapa.</p>
+    </div>
     <figure>
       <div class="diagram" tabindex="0" role="region"
         aria-label="Diagrama de topologia; em telas pequenas, role horizontalmente">
         <svg viewBox="0 0 1120 690" role="img" aria-labelledby="map-title map-description">
-          <title id="map-title">Topologia atual do SecureOps Lab</title>
+          <title id="map-title">Caminho de acesso por identidade do SecureOps Lab</title>
           <desc id="map-description">O navegador local acessa OAuth2 Proxy em 127.0.0.1:4180 e Keycloak em
             127.0.0.1:8080.
-            Keycloak participa somente de identity, uma bridge não interna. O gateway participa de identity e service.
+            Neste recorte de acesso, Keycloak participa somente de identity, uma bridge não interna. O gateway participa de identity e service.
             A API participa somente de service, uma rede interna, e não publica portas no host.
             O gateway conversa com Keycloak por OIDC e encaminha requisições autorizadas para api:3000.
             Um volume preserva os dados do Keycloak; segredos do gateway são arquivos locais montados somente para
@@ -444,7 +457,7 @@
 
           <rect x="24" y="225" width="1072" height="436" rx="15" fill="#fafcff" stroke="#b2c4d6" />
           <text x="44" y="250" class="label">DOCKER COMPOSE</text>
-          <text x="1076" y="250" text-anchor="end" class="small">compose.yaml + compose.identity.yaml</text>
+          <text x="1076" y="250" text-anchor="end" class="small">Recorte: compose.yaml + compose.identity.yaml</text>
 
           <!-- A sobreposição representa o gateway conectado às duas redes, não um firewall. -->
           <rect x="44" y="267" width="718" height="239" rx="12" fill="#edf3ff" fill-opacity=".8" stroke="#729ce9" />
@@ -508,6 +521,132 @@
         O desenho mostra conexões lógicas, não uma garantia de isolamento absoluto.</figcaption>
     </figure>
 
+    <section aria-labelledby="monitoring-title">
+      <div class="section-heading">
+        <h2 id="monitoring-title">Monitoramento · disponibilidade, autenticação e qualidade da coleta</h2>
+        <p>O Zabbix server faz as consultas e avalia as triggers. O frontend apresenta os resultados;
+          o PostgreSQL persiste configuração, histórico e eventos. As setas indicam quem inicia cada comunicação.</p>
+      </div>
+      <figure>
+        <div class="diagram" tabindex="0" role="region"
+          aria-label="Diagrama de monitoramento Zabbix; em telas pequenas, role horizontalmente">
+          <svg viewBox="0 0 1120 780" role="img" aria-labelledby="monitor-title monitor-description">
+            <title id="monitor-title">Fluxos implementados do monitoramento Zabbix</title>
+            <desc id="monitor-description">O navegador abre o frontend autenticado em localhost:8081, publicado
+              somente em 127.0.0.1. Frontend e server usam PostgreSQL na rede monitoring interna. O server consulta
+              api:3000/health pela rede service a cada 20 segundos e consulta o coletor autenticado pela rede monitoring
+              a cada 30 segundos. O coletor consulta eventos do Keycloak pela rede identity e devolve somente um agregado
+              de LOGIN_ERROR dos últimos 300 segundos. Cinco eventos abrem um problema; falhas da coleta não produzem zero.
+              Banco, server, API e coletor não publicam portas no host. O coletor não participa de service.
+              O banco usa o volume zabbix-db-data; eventos brutos permanecem no volume do Keycloak.</desc>
+
+            <text x="30" y="30" class="label">DOCKER COMPOSE · compose.monitoring.yaml somado à base e à identidade</text>
+
+            <rect x="45" y="65" width="260" height="145" rx="10" fill="#eef4ff" stroke="#235bd1" />
+            <text x="63" y="96" class="title">Navegador local</text>
+            <text x="63" y="124" class="mono">http://localhost:8081/</text>
+            <text x="63" y="151" class="label">Painel autenticado e privado</text>
+            <text x="63" y="178" class="small">HTTP local · sem TLS</text>
+            <path d="M305 125H443" class="wire" />
+            <text x="374" y="111" text-anchor="middle" class="small">loopback</text>
+
+            <rect x="445" y="65" width="280" height="145" rx="10" fill="white" stroke="#235bd1" stroke-width="2" />
+            <text x="463" y="96" class="title">Zabbix frontend</text>
+            <text x="463" y="124" class="small">zabbix-web · Nginx · 7.0.32</text>
+            <text x="463" y="151" class="mono">127.0.0.1:8081 → 8080</text>
+            <text x="463" y="178" class="small">monitoring + operations</text>
+            <path d="M725 125H833" class="wire internal" />
+            <text x="779" y="111" text-anchor="middle" class="small">SQL</text>
+
+            <rect x="835" y="65" width="255" height="145" rx="10" fill="#f2f5f8" stroke="#b2c4d6" />
+            <text x="853" y="96" class="title">PostgreSQL 17.11</text>
+            <text x="853" y="124" class="small">zabbix-db · somente monitoring</text>
+            <text x="853" y="151" class="mono">Volume zabbix-db-data</text>
+            <text x="853" y="178" class="small">Configuração, histórico e eventos</text>
+
+            <path d="M585 210V308" class="wire internal" />
+            <text x="570" y="265" text-anchor="end" class="small">consulta ao server · monitoring</text>
+            <path d="M665 310V245H965V212" class="wire internal" />
+            <text x="824" y="235" text-anchor="middle" class="small">SQL · monitoring</text>
+
+            <rect x="45" y="310" width="260" height="170" rx="10" fill="white" stroke="#62a4a2" />
+            <text x="63" y="342" class="title">API fictícia</text>
+            <text x="63" y="371" class="mono">http://api:3000/health</text>
+            <text x="63" y="399" class="label">Somente service · rede interna</text>
+            <text x="63" y="426" class="small">Sem gateway ou login no health check</text>
+            <text x="63" y="453" class="small">Sem porta no host · sem volume</text>
+
+            <rect x="445" y="310" width="280" height="170" rx="10" fill="#e7f5f3" stroke="#096f70" stroke-width="2" />
+            <text x="463" y="342" class="title">Zabbix server</text>
+            <text x="463" y="371" class="small">7.0.32 LTS · host secureops-api</text>
+            <text x="463" y="399" class="label">Cenário web + HTTP agent</text>
+            <text x="463" y="426" class="small">Triggers Single: problema / recuperação</text>
+            <text x="463" y="453" class="small">monitoring + service · sem porta no host</text>
+            <path d="M445 365H307" class="wire internal" />
+            <text x="375" y="345" text-anchor="middle" class="small">GET · 20s</text>
+            <text x="375" y="395" text-anchor="middle" class="small">service</text>
+
+            <path d="M725 365H833" class="wire internal" />
+            <text x="779" y="345" text-anchor="middle" class="small">GET · 30s</text>
+            <text x="779" y="395" text-anchor="middle" class="small">monitoring</text>
+            <text x="779" y="415" text-anchor="middle" class="small">autenticado</text>
+            <rect x="835" y="310" width="255" height="170" rx="10" fill="white" stroke="#62a4a2" />
+            <text x="853" y="342" class="title">Coletor de eventos</text>
+            <text x="853" y="371" class="small">identity-event-collector · TypeScript</text>
+            <text x="853" y="399" class="label">Só agregado + qualidade da coleta</text>
+            <text x="853" y="426" class="small">monitoring + identity · sem service</text>
+            <text x="853" y="453" class="small">Sem porta no host ou eventos em disco</text>
+
+            <path d="M965 480V558" class="wire internal" />
+            <text x="950" y="512" text-anchor="end" class="small">Admin REST · identity</text>
+            <text x="950" y="534" text-anchor="end" class="small">client credentials · view-events</text>
+            <rect x="835" y="560" width="255" height="155" rx="10" fill="white" stroke="#729ce9" />
+            <text x="853" y="592" class="title">Keycloak</text>
+            <text x="853" y="621" class="small">realm secureops-lab</text>
+            <text x="853" y="649" class="mono">client: secureops-gateway</text>
+            <text x="853" y="676" class="small">LOGIN_ERROR · política de 24h</text>
+            <text x="853" y="699" class="small">Eventos brutos no volume keycloak-data</text>
+
+            <rect x="45" y="560" width="680" height="155" rx="10" fill="#f9fbfe" stroke="#cbd8e5" />
+            <text x="63" y="592" class="label">FRONTEIRAS DE REDE · não representam isolamento absoluto do host</text>
+            <text x="63" y="623" class="small">service e monitoring: internas · identity e operations: bridges não internas</text>
+            <text x="63" y="651" class="small">operations: somente frontend · banco: somente monitoring</text>
+            <text x="63" y="679" class="small">Segredos locais montados read-only · nenhum valor exibido ou enviado ao navegador</text>
+            <text x="63" y="702" class="small">Profile monitoring-security: coletor · disponibilidade independe do Keycloak</text>
+            <text x="30" y="754" class="small">Mapa lógico do modo completo · respostas retornam pelas mesmas conexões · não é painel ao vivo</text>
+          </svg>
+        </div>
+        <figcaption>Frontend e server compartilham o banco, mas somente o server executa as verificações.
+          O agregado volta pelo coletor sem expor tokens, usuários, IPs ou eventos brutos ao Zabbix.
+          A permissão <code>view-events</code> lê eventos do realm inteiro; o recorte por client é feito no coletor, não por ACL do Keycloak.</figcaption>
+      </figure>
+
+      <div class="summary">
+        <div class="panel">
+          <h3>Disponibilidade · a API responde?</h3>
+          <ul>
+            <li><code>GET /health</code> a cada 20s; timeout de 5s, uma tentativa, somente HTTP 200 e sem seguir redirects.</li>
+            <li>Falha do cenário abre problema; nova execução válida com sucesso recupera.</li>
+            <li><code>nodata(90s)</code> abre um problema técnico separado para ausência de resultados. A avaliação é periódica, não um cronômetro exato de 90s.</li>
+            <li>A verificação não atravessa o gateway e não comprova o caminho inteiro do usuário.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Autenticação · houve falhas repetidas?</h3>
+          <ul>
+            <li>HTTP agent a cada 30s; o coletor valida e conta <code>LOGIN_ERROR</code> únicos na janela móvel de 300s, sem somar amostras sucessivas.</li>
+            <li>Contagem válida ≥5 abre um problema; somente nova contagem válida &lt;5 recupera. Um erro isolado não abre alerta.</li>
+            <li>Qualidade 0 ou ausência de amostras por 90s abre problema técnico. Falha não vira zero e não recupera autenticação.</li>
+            <li>É triagem agregada do client, não prova de ataque. Visitante autenticada com 403 é autorização negada, não erro de login.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="note">Dashboard privado: disponibilidade, problemas ativos, contagem de LOGIN_ERROR e qualidade da coleta.
+        Histórico de itens e eventos de trigger com política de 7d; retenções configuradas não comprovam expurgo observado.
+        O token administrativo temporário foi revogado; a operação usa credenciais próprias.
+        Com o Zabbix server parado, não há avaliação contínua nem monitor externo dele neste laboratório.</p>
+    </section>
+
     <section class="summary" aria-label="Resultados e pendências">
       <div class="panel">
         <h2>O que já foi demonstrado</h2>
@@ -552,6 +691,12 @@
           receber 403.</li>
         <li>Requisições autorizadas seguem para <code>api:3000</code> pela rede interna. A API não valida tokens e o
           gateway está configurado para não encaminhá-los.</li>
+        <li>Em paralelo, o Zabbix server consulta o health check por <code>service</code>, sem abrir uma porta da API no host.
+          Isso permite observar a API mesmo com o Keycloak indisponível.</li>
+        <li>Para autenticação, o server consulta um coletor por <code>monitoring</code>. O coletor lê o Keycloak por
+          <code>identity</code>, com service account exclusiva, e retorna apenas agregado e qualidade.</li>
+        <li>Cinco LOGIN_ERROR em cinco minutos abrem um problema. Uma falha de coleta abre outro problema técnico,
+          nunca um zero artificial. O PostgreSQL preserva configuração, histórico e eventos do Zabbix.</li>
       </ol>
     </details>
 
@@ -566,21 +711,22 @@
     </section>
 
     <section class="future" aria-labelledby="future-title">
-      <h2 id="future-title">Monitoramento implementado e próxima entrega</h2>
+      <h2 id="future-title">Entrega 03 validada · automação ainda futura</h2>
       <p><b>Monitoramento:</b> Zabbix com host/cenário, dashboard privado, retenção 7d e 42 checks de infraestrutura.
         Quatro widgets, disponibilidade e cinco eventos LOGIN_ERROR em cinco minutos validados; coletor com leitura restrita e escrita negada.
         Falhas de fonte/coletor não zeram contagem; reinício/recriação, ciclos reais, regressão e aceite manual aprovados. Entrega 03 concluída em 26/10/2026; token temporário revogado.
-        O diagrama acima enfatiza identidade; consulte a arquitetura para o monitoramento completo. Este documento estático não mostra o estado atual dos serviços.
-        <b>Tratamento e persistência de incidentes:</b> planejados, não implementados; impacto da troca de ferramenta
-        será definido na SPEC da entrega 04.
-        Nenhuma integração externa ou IA em runtime.
+        Os mapas acima separam acesso e observação. Este documento estático não mostra o estado atual dos serviços.
+        <b>Entrega 04 em implementação inicial:</b> n8n, PostgreSQL exclusivo, Ollama com Qwen2.5 e Mailpit ativos,
+        com inferência sintética e SMTP fictício testados separadamente. Os mapas acima continuam mostrando o caminho concluído até a entrega 03.
+        Workflows de incidentes/relatórios HTML e integração Zabbix ainda pendentes; sem envio externo ou ação corretiva pela IA.
       </p>
     </section>
 
     <footer>
       <span>HTML autônomo · sem CDN, fontes remotas, scripts ou telemetria · use Ctrl+P para imprimir</span>
-      <span><a href="architecture.md">Arquitetura</a> · <a href="features/02-identity-access/PLAN.md">PLAN 02</a> · <a
-          href="evidence/02-identity-access.md">Evidências</a></span>
+      <span><a href="architecture.md">Arquitetura</a> · <a href="features/02-identity-access/PLAN.md">PLAN 02</a> ·
+        <a href="features/03-monitoring/PLAN.md">PLAN 03</a> · <a href="evidence/03-monitoring.md">Evidências 03</a> ·
+        <a href="runbooks/monitoring.md">Runbook de monitoramento</a></span>
     </footer>
   </main>
 </body>

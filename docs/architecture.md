@@ -1,6 +1,6 @@
 # Arquitetura do SecureOps Lab
 
-> Status: Fundação, Identidade e Monitoramento concluídos. Entrega 03 aceita em 26/10/2026: Zabbix/coletor integrados, falhas, persistência, regressão e confirmação manual verificados. n8n permanece não implementado na entrega 04, sem IA. Decisões compartilhadas aqui; detalhes executáveis nas SPECS.
+> Status: Fundação, Identidade e Monitoramento concluídos. Entrega 04 em implementação inicial: infraestrutura n8n/PostgreSQL exclusivo/Ollama/Qwen2.5/Mailpit ativa, smokes independentes aprovados; workflow de incidentes/relatórios e integração Zabbix ainda pendentes. Decisões compartilhadas aqui; detalhes executáveis nas SPECS.
 
 ## 1. Restrições
 
@@ -23,8 +23,8 @@ flowchart TD
     collector[Coletor agregado · ativo] -->|Admin REST: leitura tecnica validada| keycloak
     zabbix -->|HTTP interno autenticado · integrado| collector
     zabbix --- db[PostgreSQL exclusivo do monitoramento]
-    zabbix -.->|Integração futura · entrega 04| n8n[n8n · não implementado]
-    n8n -.-> store[Persistência de incidentes · a definir]
+    zabbix -.->|Integração pendente · entrega 04| n8n[n8n · infraestrutura ativa, sem workflows]
+    n8n -.-> store[PostgreSQL separado · banco ativo, sem incidentes]
 ```
 
 | Componente | Responsabilidade | Não deve fazer |
@@ -38,9 +38,9 @@ flowchart TD
 | n8n | Validar eventos e coordenar o ciclo de incidentes | Controlar o Docker ou executar ações privilegiadas |
 | Persistência de incidentes | Manter estado consultável após reinícios | Ser confundida com o histórico temporário de execuções do n8n |
 
-O armazenamento pode usar um recurso já disponível ou exigir um componente adicional. Essa escolha permanece aberta até a SPEC de automação; não adicionar um banco apenas por antecipação.
+A [SPEC 04](features/04-incident-automation/SPEC.md) define PostgreSQL exclusivo da automação, sem reutilizar zabbix-db, com bancos/papéis distintos para metadados n8n e incidentes/relatórios. Sob autorização da autora para escolher versões/modelo e iniciar, infraestrutura e modelo local foram instalados. Ollama e SMTP não publicam portas; editor n8n e UI Mailpit em loopback. Transação de incidentes/workflows/action/HTML ainda não implementados. Redes, transporte, ACK após commit e limites de replay ficam centralizados na SPEC; linhas tracejadas continuam indicando integração pendente.
 
-API, Keycloak e gateway pertencem à entrega 02 concluída. Overlay Zabbix/coletor executando com integração validada no PLAN/evidências 03. Tracejado indica somente automação futura: Kuma nunca foi instalado e n8n não executa. Problema único do Zabbix não comprova deduplicação da automação futura.
+API, Keycloak e gateway pertencem à entrega 02 concluída. Overlay Zabbix/coletor executando com integração validada no PLAN/evidências 03. Kuma nunca foi instalado; n8n agora executa sem workflows. Problema único do Zabbix não comprova deduplicação da automação futura; smoke de IA/SMTP não equivale a relatório integrado.
 
 ## 3. Acesso e identidade
 
@@ -118,6 +118,12 @@ Requisitos transversais para a SPEC de automação:
 
 O monitor, o n8n e seu armazenamento devem sobreviver à parada isolada da API. Uma falha do próprio computador derruba o laboratório inteiro.
 
+### Relatórios com IA — entrega 04 em implementação inicial
+
+A solicitação da autora substitui a restrição anterior de “sem IA em runtime” **somente para geração de relatórios**. Fluxo proposto: encerramento persistido → job/outbox → inferência local sobre agregados → análise validada → template HTML seguro → SMTP capturado em caixa local. A IA não recebe logs brutos/segredos, não consulta serviços externos e não administra o laboratório; SQL define fatos e estado, IA produz hipóteses/recomendações rotuladas. Não é previsão estatística comprovada.
+
+IA e SMTP ficam fora da transação/ACK Zabbix. Fallback factual é rotulado e não substitui o aceite de IA real; aceitação SMTP ambígua exige reconciliação, não promessa de envio único. SMTP local não implica entrega na caixa pessoal externa. A SPEC 04 define detalhes e gates de modelo/recursos/redes, sem alterar retroativamente o escopo concluído da entrega 03.
+
 ## 7. Dados, configuração e evidências
 
 - Usar volumes nomeados para os dados que precisarem sobreviver a reinícios.
@@ -137,7 +143,7 @@ Volumes não substituem backups e não garantem integridade ou auditoria imutáv
 | Fundação: versões, porta interna e rede definidas; execução validada e snapshot de consumo registrado | [SPEC 01 — Fundação local](features/01-local-foundation/SPEC.md) e [evidências](evidence/01-local-foundation.md) |
 | D01–D04 aprovadas e identidade concluída, com limites e resultados registrados | [SPEC 02 — Identidade e acesso](features/02-identity-access/SPEC.md) e [evidências](evidence/02-identity-access.md) |
 | M-D01–M-D06 aprovadas e entrega 03 concluída com MO-01–MO-10 verificados; limites de HTTP, retenção e leitura de realm preservados | [SPEC 03 — Monitoramento](features/03-monitoring/SPEC.md) e [evidências](evidence/03-monitoring.md) |
-| Autenticação do webhook, armazenamento e consistência dos eventos | SPEC 04 — Automação de incidentes |
+| Escolha técnica/início autorizados; versões/modelo selecionados e infraestrutura ativa; contrato real e aceites funcionais pendentes | [SPEC 04 — Incidentes e relatórios com IA](features/04-incident-automation/SPEC.md) / [PLAN](features/04-incident-automation/PLAN.md) |
 
 ## 9. Limites da demonstração
 

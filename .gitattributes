@@ -1,2 +1,3 @@
 # Scripts executados nas imagens Linux precisam manter LF no checkout Windows.
 infra/monitoring/*.sh text eol=lf
+infra/automation/*.sh text eol=lf

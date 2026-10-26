@@ -2,11 +2,13 @@
 
 Laboratório pessoal de operações de TI e segurança para praticar controle de acesso baseado em identidade, monitoramento e resposta automatizada a incidentes.
 
-O projeto simula a operação de um serviço interno: somente usuários autorizados podem acessá-lo, e o Zabbix detecta indisponibilidade e falhas repetidas de autenticação. A automação persistente de incidentes será a entrega 04; ainda não está implementada.
+O projeto simula a operação de um serviço interno: somente usuários autorizados podem acessá-lo, e o Zabbix detecta indisponibilidade e falhas repetidas de autenticação. A entrega 04 começou pela infraestrutura de n8n, IA e SMTP locais; o fluxo de incidentes e relatórios HTML ainda não está implementado.
 
-> **Status:** Fundação, Identidade e Monitoramento concluídos. Entrega 03 aceita em 26/10/2026: disponibilidade e LOGIN_ERROR integrados, quatro widgets privados, retenções 24h/7d e persistência/falhas/regressão validadas. Token administrativo temporário revogado, sem dependência em runtime. n8n na entrega 04, ainda não iniciada e sem IA. Resultados e limites no [PLAN 03](docs/features/03-monitoring/PLAN.md) e na [matriz de evidências](docs/evidence/03-monitoring.md).
+> **Status:** Fundação, Identidade e Monitoramento concluídos. Entrega 04 [em implementação inicial](docs/features/04-incident-automation/PLAN.md): n8n 2.44.7, PostgreSQL separado, Ollama 0.40.11 com Qwen2.5 1.5B Q4_K_M e Mailpit 1.32.0 ativos. Inferência real sintética e SMTP fictício testados separadamente; **sem workflow, incidentes persistidos ou relatório integrado ainda**. Owner n8n criado pela autora. [Evidências 04 e limites](docs/evidence/04-incident-automation.md); [aceite do monitoramento](docs/evidence/03-monitoring.md). Token administrativo anterior segue revogado.
 
 ## Objetivo
+
+**Entrega 04 — fluxo aprovado, infraestrutura inicial ativa:** Zabbix → n8n → incidentes persistentes → IA local → relatório HTML → SMTP local. Integração funcional ainda pendente; a caixa SMTP é local ao laboratório, não uma caixa pessoal externa.
 
 Construir uma prova de conceito pequena, reproduzível e demonstrável, conectando desenvolvimento de software a práticas de operações e segurança:
 
@@ -33,25 +35,76 @@ O laboratório usa recursos do computador e não pretende reproduzir a disponibi
 
 Uma equipe de operações utiliza uma aplicação interna fictícia. A operadora deve se autenticar com MFA e possuir autorização para acessar o serviço. Uma pessoa autenticada, mas sem permissão, deve ser bloqueada.
 
-Enquanto isso, um monitor verifica a saúde da aplicação pela rede interna. Uma indisponibilidade gera um evento para a automação, que registra o incidente sem duplicá-lo. Quando o serviço volta, a recuperação é registrada com a duração observada.
+Em paralelo, o Zabbix verifica a saúde da API pela rede interna e acompanha falhas repetidas de autenticação. Queda e retorno geram problemas e recuperações no monitor. O registro persistente de incidentes por automação será a próxima entrega; ainda não está implementado.
 
-## Arquitetura proposta
+## Demo visual · do login ao monitoramento
+
+**Acesso autorizado não é o mesmo que serviço saudável.** O gateway decide quem entra; o Zabbix observa disponibilidade e falhas de autenticação por caminhos independentes.
+
+O diagrama abaixo é renderizado pelo GitHub e representa a implementação das entregas 01–03, não o estado dos containers em tempo real. As setas indicam quem inicia a comunicação; as respostas retornam pela mesma conexão.
 
 ```mermaid
-flowchart TD
-    browser[Navegador local] --> gateway[OAuth2 Proxy\nGateway de acesso]
-    gateway <--> identity[Keycloak\nIdentidade e MFA]
-    gateway --> api[API fictícia\nSem porta publicada no host]
-    monitor[Zabbix · queda e retorno validados] -->|Verificação interna de saúde| api
-    monitor -->|Agregado autenticado| collector[Coletor interno · validado]
-    collector -->|Leitura tecnica de eventos| identity
-    monitor -.->|Eventos · desenho a revisar| automation[Tratamento de incidentes · planejado]
-    automation -.-> incidents[Persistência de incidentes · planejada]
+flowchart TB
+    browser["Navegador local<br/>Contas fictícias"]
+
+    subgraph access["ACESSO · identidade e autorização"]
+        gateway["OAuth2 Proxy<br/>app.localhost:4180<br/>identity + service"]
+        identity["Keycloak · senha + TOTP<br/>keycloak.localhost:8080<br/>somente identity"]
+        api["API Node.js + TypeScript<br/>api:3000 · somente service<br/>SEM PORTA NO HOST"]
+        gateway -->|"OIDC · validação de tokens e grupo"| identity
+        gateway -->|"Somente grupo /secureops-operators"| api
+    end
+
+    subgraph monitoring["MONITORAMENTO · independente do container da API"]
+        web["Zabbix frontend<br/>localhost:8081 · painel privado<br/>monitoring + operations"]
+        server["Zabbix server · 7.0.32 LTS<br/>Cenário web, itens e triggers<br/>monitoring + service"]
+        collector["Coletor de eventos · TypeScript<br/>Agregado + qualidade da coleta<br/>monitoring + identity"]
+        db[("PostgreSQL 17.11<br/>Configuração, histórico e eventos<br/>somente monitoring")]
+        volume["Volume zabbix-db-data<br/>Persistência ≠ backup"]
+        web -->|"Consulta ao server"| server
+        web -->|SQL| db
+        server -->|SQL| db
+        db --- volume
+        server -->|"GET autenticado · a cada 30s"| collector
+    end
+
+    browser -->|"Aplicação · loopback"| gateway
+    browser -->|"Login + MFA · loopback"| identity
+    browser -->|"Painel · loopback"| web
+    server -->|"GET /health · a cada 20s · rede service"| api
+    collector -->|"Admin REST · view-events · rede identity"| identity
+
+    classDef entry fill:#eef4ff,stroke:#235bd1,color:#142d48
+    classDef internal fill:#e7f5f3,stroke:#096f70,color:#142d48
+    classDef storage fill:#f2f5f8,stroke:#72869a,color:#142d48
+    class browser,gateway,identity,web entry
+    class api,server,collector internal
+    class db,volume storage
 ```
 
-A Fundação Local usa `service` interna, sem volumes nem portas da API. O overlay `compose.identity.yaml` acrescenta Keycloak, volume sensível e rede `identity` não interna, com publicação somente em loopback. O gateway autoriza somente `/secureops-operators`; visitante com MFA recebe 403. Veja a [topologia HTML implementada](docs/topology.html), [SPEC 02](docs/features/02-identity-access/SPEC.md) e a matriz final nas [evidências](docs/evidence/02-identity-access.md). Tracejado no diagrama indica trabalho futuro, não serviço executando.
+### O que essa demo já comprova
 
-### Tecnologias previstas
+| Na demonstração | Resultado validado |
+| --- | --- |
+| Operadora entra com senha + TOTP | Gateway permite o acesso à API pelo grupo autorizado |
+| Visitante entra com senha + TOTP | Gateway nega com **403**: autenticar não concede autorização |
+| Somente a API é parada e retomada | Zabbix detecta **problema → recuperação**; outros seis serviços preservados |
+| Cinco `LOGIN_ERROR` em cinco minutos | Um problema de autenticação; recupera somente com nova contagem válida abaixo de cinco |
+| Fonte ou coletor indisponível | Problema técnico; ausência de dados **não vira zero** nem recupera indevidamente o alerta de autenticação |
+| Monitoramento reiniciado e recriado | Volume, configuração, quatro widgets e histórico/eventos selecionados preservados |
+
+**Resultados reais, não animação simulada:** nos dois ciclos finais da API, a detecção ocorreu em **7s / 13s** após a parada confirmada e a recuperação em **8s / 8s** após a saúde confirmada. São tempos observados no laboratório, não um SLA. Testes de navegador foram relatados pela autora; testes técnicos e limites estão nas [evidências de identidade](docs/evidence/02-identity-access.md) e na [matriz de monitoramento](docs/evidence/03-monitoring.md).
+
+### Explore a topologia completa
+
+**[Ver o arquivo da topologia HTML →](docs/topology.html)** — dois mapas detalhados, redes, portas, regras de alerta e um roteiro para explicar a solução em entrevista. No GitHub, o link abre o código: baixe o arquivo ou, após clonar o projeto, abra `docs/topology.html` no navegador. Funciona sem CDN, scripts, fontes remotas ou telemetria.
+
+- **Exposição:** aplicação `127.0.0.1:4180`, identidade `127.0.0.1:8080` e painel `127.0.0.1:8081`. API, server, banco e coletor não publicam portas no host.
+- **Redes:** `service` e `monitoring` são internas; `identity` e `operations` são bridges não internas. O coletor não participa de `service`. Os agrupamentos do diagrama indicam responsabilidades, não fronteiras de rede.
+- **Limites:** HTTP local sem TLS; host e Docker fazem parte da base de confiança. Saúde interna da API não comprova todo o caminho do usuário. Alerta de login é triagem, não prova de ataque; `view-events` permite ler o realm inteiro e o filtro por client é aplicado no coletor.
+- **Entrega 04 em andamento:** infraestrutura n8n/IA local/Mailpit ativa, mas setas Zabbix → workflow → incidentes → relatório com IA ainda não implementadas. Os smokes independentes não equivalem à demo ponta a ponta. Nenhuma entrega à caixa pessoal externa ou ação corretiva automática.
+
+### Tecnologias e responsabilidades
 
 | Tecnologia | Responsabilidade |
 | --- | --- |
@@ -59,10 +112,10 @@ A Fundação Local usa `service` interna, sem volumes nem portas da API. O overl
 | Keycloak | Gerenciar usuários, grupos e MFA com TOTP |
 | OAuth2 Proxy | Integrar autenticação OIDC e restringir o acesso à aplicação |
 | Zabbix + PostgreSQL | Disponibilidade e falhas repetidas de autenticação validadas; configuração/histórico persistentes |
-| n8n | Automação futura na entrega 04; não implementada |
+| n8n + Ollama/Qwen2.5 + Mailpit | Infraestrutura inicial ativa na entrega 04; workflows de incidentes/relatórios ainda pendentes |
 | Docker Compose | Orquestrar serviços, redes e volumes locais |
 
-O mecanismo de persistência dos incidentes será escolhido nas especificações, priorizando simplicidade, consulta e reprodução dos testes.
+A [SPEC 04](docs/features/04-incident-automation/SPEC.md) define PostgreSQL exclusivo da automação: infraestrutura/bancos/papéis separados já criados; modelo e rotinas transacionais de incidentes ainda serão implementados. Instalação/testes iniciais no [runbook parcial 04](docs/runbooks/incident-automation.md).
 
 O uso pessoal local do n8n é gratuito, mas a ferramenta possui licença própria. O Docker Desktop também permite uso pessoal gratuito conforme seus termos. Não é necessário contratar funcionalidades comerciais desses produtos.
 
@@ -88,7 +141,7 @@ A permissão implementada é a associação ao grupo exato `/secureops-operators
 
 O monitoramento interno não comprova a saúde de todo o caminho percorrido pelo usuário. Falhas no gateway, na autenticação ou no navegador podem existir mesmo com a API saudável.
 
-### 3. Resposta automatizada a incidentes
+### 3. Incidentes e relatórios com IA — implementação inicial
 
 - Receber eventos do monitor por webhook.
 - Validar e normalizar os dados recebidos.
@@ -96,6 +149,9 @@ O monitoramento interno não comprova a saúde de todo o caminho percorrido pelo
 - Evitar múltiplos incidentes abertos para a mesma indisponibilidade.
 - Encerrar o incidente após a recuperação e calcular sua duração observada.
 - Manter registros persistentes e consultáveis sem integrações externas obrigatórias.
+- Gerar análise em português com IA local a partir de fatos/agregados sanitizados, sem logs brutos ou segredos.
+- Produzir HTML com fatos, hipóteses, limitações e recomendações preventivas para avaliação humana, sem executar ações ou prometer previsão validada.
+- Enviar pelo SMTP de laboratório para caixa local visualizada no navegador; proposta de Mailpit, não inbox pessoal externa.
 
 A autenticação do webhook, a persistência e o tratamento de eventos repetidos ou fora de ordem serão definidos nas especificações.
 
@@ -145,7 +201,7 @@ Identidade e monitoramento foram validados nas entregas 02/03, com origem manual
 - Kubernetes, SIEM, antivírus corporativo e múltiplos ambientes.
 - Interface elaborada ou aplicação financeira real.
 - Recuperação automática com ações privilegiadas.
-- IA e envio de logs para provedores externos.
+- IA em nuvem, envio de logs para provedores externos e ações corretivas executadas por IA. IA local para relatórios foi solicitada na entrega 04 e está em especificação, não excluída do produto.
 
 ### Extensão opcional: WAF
 
@@ -221,7 +277,7 @@ Para repetir dois ciclos autorizados apenas da API, `./scripts/Test-MonitoringAv
 
 ## Próximos passos
 
-1. Especificar e revisar a entrega 04 — automação de incidentes: contrato real do Zabbix, autenticação, persistência/deduplicação, retries e eventos fora de ordem. Ainda não implementar n8n sem SPEC/PLAN aprovados.
+1. Continuar a entrega 04 pelo [PLAN](docs/features/04-incident-automation/PLAN.md): fechar contrato de eventos/parser, implementar transação de incidentes, workflows e relatório HTML/SMTP com IA real. Infraestrutura ativa não substitui os gates e aceites funcionais.
 2. Reproduzir identidade/monitoramento pelos respectivos runbooks, preservando credenciais, TOTP, grupos e volumes. Não enviar segredos ou callbacks ao chat.
 3. Depois da automação, executar a demonstração integrada da entrega 05 conforme o [roadmap](docs/roadmap.md). Monitoramento concluído não significa projeto inteiro concluído.
 

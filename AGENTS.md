@@ -40,7 +40,7 @@ Evite duplicar decisões em vários documentos. Se houver contradição, sinaliz
 - Exceções locais de transporte, cookies ou modo de desenvolvimento precisam de justificativa, limites e validação documentados antes de serem aplicadas.
 - Não montar o socket Docker nos serviços nem usar containers privilegiados sem uma necessidade aprovada. O fluxo de incidentes não precisa desses privilégios.
 - Não remover volumes, apagar dados, executar limpeza ampla ou sobrescrever trabalho existente sem autorização explícita.
-- Não usar integrações de IA em runtime nem enviar logs a serviços externos. Usar IA para desenvolver o laboratório não exige IA no produto.
+- A autora solicitou IA em runtime para gerar relatórios na entrega 04, substituindo a proibição anterior nesse escopo. Especificar primeiro: a proposta é inferência local sobre dados agregados/sanitizados, sem enviar logs ou segredos a serviços externos. Modelo, recursos e integração dependem da revisão/aprovação da SPEC 04 antes de implementar. IA não pode executar ações corretivas, administrar serviços ou decidir o estado dos incidentes.
 
 ## Fluxo de trabalho
 

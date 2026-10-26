@@ -1,6 +1,6 @@
 # Roadmap de implementação
 
-> Status: Fundação Local, Identidade e Monitoramento concluídos. Entrega 03 aceita em 26/10/2026, MO-01–MO-10 verificados: disponibilidade/segurança, negativos, dois ciclos reais de autenticação, persistência, regressão e confirmação manual aprovados. Token temporário revogado e negativa confirmada. Entrega 04 não iniciada, sem IA.
+> Status: Fundação Local, Identidade e Monitoramento concluídos. Entrega 04 em implementação inicial desde 26/10/2026, após autorização de escolha técnica/início: infraestrutura n8n/banco/Ollama/modelo/Mailpit ativa e smokes independentes aprovados. Sem workflows/integração Zabbix/relatório real ainda. Token administrativo anterior permanece revogado; entregas anteriores preservadas.
 
 ## Como usar
 
@@ -30,7 +30,7 @@ A ordem é 01 → 02 → 03 → 04 → 05. Disponibilidade depende da fundação
 | 01 — Fundação local | Concluída | `features/01-local-foundation/{SPEC,PLAN}.md` |
 | 02 — Identidade e acesso | Concluída | [SPEC](features/02-identity-access/SPEC.md) / [PLAN](features/02-identity-access/PLAN.md) |
 | 03 — Monitoramento | Concluída | [SPEC](features/03-monitoring/SPEC.md) / [PLAN](features/03-monitoring/PLAN.md) |
-| 04 — Automação de incidentes | Não iniciada | `features/04-incident-automation/{SPEC,PLAN}.md` |
+| 04 — Automação de incidentes | Em implementação | [SPEC](features/04-incident-automation/SPEC.md) / [PLAN](features/04-incident-automation/PLAN.md) |
 | 05 — Validação integrada e demonstração | Não iniciada | Checklist transversal, runbook e evidências |
 
 Os caminhos são relativos a `docs/`. Identidade possui [matriz final](evidence/02-identity-access.md), [PLAN concluído](features/02-identity-access/PLAN.md) e [runbook](runbooks/identity-access.md); regressão do fechamento: 35 API + 10 estáticos + 12 verificações isoladas aprovados. API segue somente em rede interna sem porta. Zabbix substitui o desenho Kuma; problemas/recuperações nativos não substituem os critérios futuros de automação. Estado real da nova infraestrutura no PLAN 03.
@@ -99,7 +99,9 @@ Critérios de saída:
 
 ## 04 — Automação de incidentes
 
-**Resultado:** eventos reais do monitor geram um ciclo persistente de abertura e encerramento, sem duplicação de incidentes abertos.
+**Resultado esperado:** eventos reais do monitor geram incidentes persistentes e relatórios HTML com análise de IA, enviados por SMTP para a caixa local de laboratório.
+
+**Estado em 26/10/2026:** autora autorizou escolha de versão/modelo e início gradual. Baseline técnica selecionada na SPEC: n8n 2.44.7, Ollama 0.40.11/Qwen2.5 1.5B Q4_K_M, Mailpit 1.32.0 e PostgreSQL 17.11 exclusivo. Quatro serviços novos ativos; owner cadastrado pela autora, seis testes isolados de integridade e 66 checks de infraestrutura aprovados. Inferência real sintética e SMTP fictício separados; nenhum workflow/action/incidente/relatório integrado. Gate de contrato Zabbix e IA-01–IA-14 ainda pendentes; [evidências iniciais](evidence/04-incident-automation.md).
 
 Escopo da especificação:
 
@@ -109,6 +111,8 @@ Escopo da especificação:
 - Tratar eventos inválidos, repetidos, simultâneos, fora de ordem e recuperação sem incidente aberto.
 - Definir falhas de entrega ou armazenamento e limites de retries.
 - Exportar workflow sem credenciais e documentar importação/configuração.
+- Gerar análise com IA local sobre agregados sanitizados e HTML seguro, separando fatos, hipóteses e recomendações preventivas sem ações automáticas.
+- Enviar por SMTP local, com jobs/outbox persistentes, falhas/retries explícitos e sem relay ou entrega externa.
 
 Critérios de saída:
 
@@ -120,6 +124,8 @@ Critérios de saída:
 - [ ] Recuperação repetida ou isolada não cria incidente indevido.
 - [ ] Um novo ciclo de queda após encerramento pode abrir um novo incidente.
 - [ ] Limites para eventos fora de ordem e falhas de entrega foram testados e registrados.
+- [ ] Relatório com inferência local real e HTML seguro recebido no Mailpit; modelo/prompt rastreáveis e limitações explícitas, sem tratar fallback como prova de IA.
+- [ ] Recursos/isolamento, falhas de IA/SMTP, retomada de jobs e aceitação SMTP ambígua testados, sem falso envio ou promessa de exactly-once.
 
 ## 05 — Validação integrada e demonstração
 

@@ -1,0 +1,11 @@
+{
+  "model": "qwen2.5:1.5b-instruct-q4_K_M",
+  "license": "Apache-2.0",
+  "manifestPath": "models/manifests/registry.ollama.ai/library/qwen2.5/1.5b-instruct-q4_K_M",
+  "manifestSha256": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+  "localManifestSha256": "f2b0a490f661d58f20c4b98e5797ecf55e6e96293a88b71e96e7cc389f658f7e",
+  "modelBlobSha256": "183715c435899236895da3869489cc30ac241476b4971a20285b1a462818a5b4",
+  "modelBytes": 986048512,
+  "contextTokens": 2048,
+  "outputTokens": 512
+}
