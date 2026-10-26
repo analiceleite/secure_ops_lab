@@ -1,286 +1,213 @@
 # SecureOps Lab
 
-Laboratório pessoal de operações de TI e segurança para praticar controle de acesso baseado em identidade, monitoramento e resposta automatizada a incidentes.
+**Um laboratório local que conecta acesso por identidade, monitoramento, incidentes persistentes e relatórios com IA.**
 
-O projeto simula a operação de um serviço interno: somente usuários autorizados podem acessá-lo, e o Zabbix detecta indisponibilidade e falhas repetidas de autenticação. A entrega 04 começou pela infraestrutura de n8n, IA e SMTP locais; o fluxo de incidentes e relatórios HTML ainda não está implementado.
+O SecureOps Lab simula a operação de uma aplicação interna fictícia. Uma pessoa precisa se autenticar com MFA e pertencer ao grupo autorizado para acessá-la. Em paralelo, o Zabbix acompanha disponibilidade e falhas de login; eventos do monitor alimentam uma automação que registra incidentes, correlaciona recuperações e gera relatórios HTML com IA local, enviados para uma caixa de e-mail de teste.
 
-> **Status:** Fundação, Identidade e Monitoramento concluídos. Entrega 04 [em implementação inicial](docs/features/04-incident-automation/PLAN.md): n8n 2.44.7, PostgreSQL separado, Ollama 0.40.11 com Qwen2.5 1.5B Q4_K_M e Mailpit 1.32.0 ativos. Inferência real sintética e SMTP fictício testados separadamente; **sem workflow, incidentes persistidos ou relatório integrado ainda**. Owner n8n criado pela autora. [Evidências 04 e limites](docs/evidence/04-incident-automation.md); [aceite do monitoramento](docs/evidence/03-monitoring.md). Token administrativo anterior segue revogado.
+O objetivo é aprender e demonstrar conceitos de operações e segurança com decisões técnicas explicáveis, sem contratar serviços, usar dados de empresas ou expor o laboratório na internet.
 
-## Objetivo
+> **Estado do projeto:** identidade e monitoramento validados; fluxo mínimo de incidentes → IA → HTML → SMTP local demonstrado de ponta a ponta. É uma **prova de conceito educacional**, não uma solução de produção. A IA apresentou afirmações causais sem evidência em alguns ensaios; seus textos exigem revisão humana. O aceite completo da automação permanece parcial: [resultados e pendências](docs/evidence/04-acceptance-matrix.md).
 
-**Entrega 04 — fluxo aprovado, infraestrutura inicial ativa:** Zabbix → n8n → incidentes persistentes → IA local → relatório HTML → SMTP local. Integração funcional ainda pendente; a caixa SMTP é local ao laboratório, não uma caixa pessoal externa.
+## Comece por aqui
 
-Construir uma prova de conceito pequena, reproduzível e demonstrável, conectando desenvolvimento de software a práticas de operações e segurança:
+- **Entender a solução:** [fluxo completo](#como-o-fluxo-funciona) e [componentes](#tecnologias-e-responsabilidades).
+- **Ver a demonstração:** [roteiro de 5 minutos](docs/runbooks/interview-demo.md).
+- **Executar na sua máquina:** [pré-requisitos e instalação](#como-executar).
+- **Examinar as decisões:** [arquitetura](docs/architecture.md), [roadmap](docs/roadmap.md) e [evidências](docs/evidence/).
 
-- Autenticação, autorização e autenticação multifator (MFA).
-- Menor privilégio e proteção contra acesso direto à aplicação.
-- Redes entre containers e exposição mínima de portas.
-- Monitoramento de disponibilidade e diagnóstico de falhas.
-- Integração por webhooks e automação operacional.
-- Registro, deduplicação e encerramento de incidentes.
-- Documentação de arquitetura, testes e procedimentos de recuperação.
+## O problema representado
 
-## Premissas
+Imagine um serviço interno utilizado por uma equipe de operações:
 
-- **Gratuito:** sem contratação de cloud, domínio, APIs pagas ou serviços externos obrigatórios.
-- **Local:** execução no próprio computador, com Docker Compose.
-- **Isolado:** somente aplicação, contas e dados fictícios do laboratório.
-- **Educacional:** não utiliza sistemas, credenciais ou dados de empresas.
-- **Escopo de fim de semana:** priorizar um fluxo completo e compreensível em vez de uma infraestrutura extensa.
-- **Sem exposição pública:** não abrir portas no roteador nem criar túneis públicos.
+1. A **operadora** deve entrar com senha e um código temporário do autenticador — MFA com TOTP.
+2. A **visitante**, embora tenha uma identidade válida e também use MFA, não pertence ao grupo autorizado e deve receber **403**.
+3. Se a aplicação parar, a falha precisa ser detectada sem depender do próprio container que caiu.
+4. Problema e recuperação precisam formar um único incidente, com horários e duração observada, mesmo se um evento for repetido.
+5. O incidente deve produzir um relatório consultável, com fatos separados de hipóteses e sugestões de investigação.
 
-O laboratório usa recursos do computador e não pretende reproduzir a disponibilidade ou a segurança de um ambiente de produção.
+**Autenticação responde “quem é você?”; autorização responde “você pode acessar?”. Monitoramento e automação observam o serviço por caminhos independentes do login.**
 
-## Cenário
-
-Uma equipe de operações utiliza uma aplicação interna fictícia. A operadora deve se autenticar com MFA e possuir autorização para acessar o serviço. Uma pessoa autenticada, mas sem permissão, deve ser bloqueada.
-
-Em paralelo, o Zabbix verifica a saúde da API pela rede interna e acompanha falhas repetidas de autenticação. Queda e retorno geram problemas e recuperações no monitor. O registro persistente de incidentes por automação será a próxima entrega; ainda não está implementado.
-
-## Demo visual · do login ao monitoramento
-
-**Acesso autorizado não é o mesmo que serviço saudável.** O gateway decide quem entra; o Zabbix observa disponibilidade e falhas de autenticação por caminhos independentes.
-
-O diagrama abaixo é renderizado pelo GitHub e representa a implementação das entregas 01–03, não o estado dos containers em tempo real. As setas indicam quem inicia a comunicação; as respostas retornam pela mesma conexão.
+## Como o fluxo funciona
 
 ```mermaid
 flowchart TB
-    browser["Navegador local<br/>Contas fictícias"]
+    user["Navegador local<br/>Contas fictícias"]
 
-    subgraph access["ACESSO · identidade e autorização"]
-        gateway["OAuth2 Proxy<br/>app.localhost:4180<br/>identity + service"]
-        identity["Keycloak · senha + TOTP<br/>keycloak.localhost:8080<br/>somente identity"]
-        api["API Node.js + TypeScript<br/>api:3000 · somente service<br/>SEM PORTA NO HOST"]
-        gateway -->|"OIDC · validação de tokens e grupo"| identity
-        gateway -->|"Somente grupo /secureops-operators"| api
+    subgraph access["1 · Acesso por identidade"]
+        gateway["OAuth2 Proxy<br/>Validação de sessão e grupo"]
+        keycloak["Keycloak<br/>Senha + MFA com TOTP"]
+        api["API Node.js + TypeScript<br/>Sem porta publicada no host"]
+        gateway <-->|OIDC| keycloak
+        gateway -->|Somente grupo autorizado| api
     end
 
-    subgraph monitoring["MONITORAMENTO · independente do container da API"]
-        web["Zabbix frontend<br/>localhost:8081 · painel privado<br/>monitoring + operations"]
-        server["Zabbix server · 7.0.32 LTS<br/>Cenário web, itens e triggers<br/>monitoring + service"]
-        collector["Coletor de eventos · TypeScript<br/>Agregado + qualidade da coleta<br/>monitoring + identity"]
-        db[("PostgreSQL 17.11<br/>Configuração, histórico e eventos<br/>somente monitoring")]
-        volume["Volume zabbix-db-data<br/>Persistência ≠ backup"]
-        web -->|"Consulta ao server"| server
-        web -->|SQL| db
-        server -->|SQL| db
-        db --- volume
-        server -->|"GET autenticado · a cada 30s"| collector
+    subgraph monitoring["2 · Monitoramento independente"]
+        zabbix["Zabbix<br/>Disponibilidade e regras de alerta"]
+        collector["Coletor TypeScript<br/>Falhas de login agregadas + qualidade"]
+        monitorDb[("PostgreSQL do Zabbix")]
+        zabbix -->|SQL| monitorDb
+        zabbix -->|Consulta autenticada| collector
     end
 
-    browser -->|"Aplicação · loopback"| gateway
-    browser -->|"Login + MFA · loopback"| identity
-    browser -->|"Painel · loopback"| web
-    server -->|"GET /health · a cada 20s · rede service"| api
-    collector -->|"Admin REST · view-events · rede identity"| identity
+    subgraph automation["3 · Incidentes e relatórios locais"]
+        receiver["Receptor TypeScript<br/>Autenticação e validação do webhook"]
+        incidentDb[("PostgreSQL da automação<br/>Incidentes, jobs e outbox")]
+        n8n["n8n<br/>Geração e entrega de relatórios"]
+        ollama["Ollama + Qwen2.5<br/>Inferência local"]
+        mailpit["Mailpit<br/>SMTP e caixa de teste"]
+        receiver -->|Transação antes da confirmação| incidentDb
+        n8n <-->|Reserva jobs e persiste resultados| incidentDb
+        n8n -->|Snapshot sanitizado| ollama
+        n8n -->|Relatório HTML + texto| mailpit
+    end
 
-    classDef entry fill:#eef4ff,stroke:#235bd1,color:#142d48
-    classDef internal fill:#e7f5f3,stroke:#096f70,color:#142d48
-    classDef storage fill:#f2f5f8,stroke:#72869a,color:#142d48
-    class browser,gateway,identity,web entry
-    class api,server,collector internal
-    class db,volume storage
+    user -->|Acesso à aplicação| gateway
+    user -->|Login + MFA| keycloak
+    zabbix -->|GET /health pela rede interna| api
+    collector -->|Leitura técnica de eventos| keycloak
+    zabbix -->|Problema e recuperação| receiver
 ```
 
-### O que essa demo já comprova
+### Do evento ao relatório
 
-| Na demonstração | Resultado validado |
-| --- | --- |
-| Operadora entra com senha + TOTP | Gateway permite o acesso à API pelo grupo autorizado |
-| Visitante entra com senha + TOTP | Gateway nega com **403**: autenticar não concede autorização |
-| Somente a API é parada e retomada | Zabbix detecta **problema → recuperação**; outros seis serviços preservados |
-| Cinco `LOGIN_ERROR` em cinco minutos | Um problema de autenticação; recupera somente com nova contagem válida abaixo de cinco |
-| Fonte ou coletor indisponível | Problema técnico; ausência de dados **não vira zero** nem recupera indevidamente o alerta de autenticação |
-| Monitoramento reiniciado e recriado | Volume, configuração, quatro widgets e histórico/eventos selecionados preservados |
+1. **O Zabbix detecta o evento.** Além do teste HTTP interno, acompanha falhas repetidas de autenticação e problemas na qualidade da coleta. Falta de dados não é tratada como zero falhas.
+2. **Uma action restrita envia o webhook.** Apenas as condições aprovadas do laboratório participam; não há comandos de correção automática.
+3. **O receptor valida e confirma após o commit.** O PostgreSQL mantém a identidade dos eventos, evita duplicações e correlaciona problema e recuperação para calcular a duração.
+4. **O n8n processa um job persistido.** A geração do relatório é assíncrona: indisponibilidade da IA ou do n8n não impede o registro do incidente.
+5. **O Ollama gera o texto analítico.** Recebe um resumo estruturado de fatos, sem logs brutos nem segredos. A IA não decide o estado do incidente.
+6. **Um template fixo monta o HTML.** Os fatos vêm do banco e as strings são escapadas. O envio é registrado em uma **outbox**, uma fila persistente de mensagens.
+7. **O Mailpit recebe o e-mail local.** É uma caixa fictícia de teste, não um serviço de envio para endereços pessoais ou externos.
 
-**Resultados reais, não animação simulada:** nos dois ciclos finais da API, a detecção ocorreu em **7s / 13s** após a parada confirmada e a recuperação em **8s / 8s** após a saúde confirmada. São tempos observados no laboratório, não um SLA. Testes de navegador foram relatados pela autora; testes técnicos e limites estão nas [evidências de identidade](docs/evidence/02-identity-access.md) e na [matriz de monitoramento](docs/evidence/03-monitoring.md).
+O diagrama representa a arquitetura, não o estado dos containers em tempo real. Para redes, fronteiras e decisões detalhadas, consulte a [arquitetura](docs/architecture.md).
 
-### Explore a topologia completa
+## Tecnologias e responsabilidades
 
-**[Ver o arquivo da topologia HTML →](docs/topology.html)** — dois mapas detalhados, redes, portas, regras de alerta e um roteiro para explicar a solução em entrevista. No GitHub, o link abre o código: baixe o arquivo ou, após clonar o projeto, abra `docs/topology.html` no navegador. Funciona sem CDN, scripts, fontes remotas ou telemetria.
+| Componente | Versão de referência | Papel no laboratório |
+| --- | --- | --- |
+| Node.js + TypeScript | 24.22.1 / 5.9.3 | API fictícia, coletor de eventos e receptor de webhooks |
+| Keycloak | 26.8.1 | Identidades, grupos e MFA com TOTP |
+| OAuth2 Proxy | 7.15.5 | Integração OIDC e autorização pelo grupo exato `/secureops-operators` |
+| Zabbix | 7.0.32 LTS | Testes de disponibilidade, itens, triggers e eventos problem/recovery |
+| PostgreSQL | 17.11 | Persistência do monitoramento e da automação em instâncias separadas |
+| n8n | 2.44.7 | Workflows de geração e entrega dos relatórios |
+| Ollama + Qwen2.5 | 0.40.11 / 1.5B Instruct Q4_K_M | Inferência local para o texto analítico |
+| Mailpit | 1.32.0 | SMTP autenticado e visualização dos e-mails de teste |
+| Docker Compose | Ambiente validado com v2.40.2 | Serviços, redes, limites de recursos e volumes locais |
 
-- **Exposição:** aplicação `127.0.0.1:4180`, identidade `127.0.0.1:8080` e painel `127.0.0.1:8081`. API, server, banco e coletor não publicam portas no host.
-- **Redes:** `service` e `monitoring` são internas; `identity` e `operations` são bridges não internas. O coletor não participa de `service`. Os agrupamentos do diagrama indicam responsabilidades, não fronteiras de rede.
-- **Limites:** HTTP local sem TLS; host e Docker fazem parte da base de confiança. Saúde interna da API não comprova todo o caminho do usuário. Alerta de login é triagem, não prova de ataque; `view-events` permite ler o realm inteiro e o filtro por client é aplicado no coletor.
-- **Entrega 04 em andamento:** infraestrutura n8n/IA local/Mailpit ativa, mas setas Zabbix → workflow → incidentes → relatório com IA ainda não implementadas. Os smokes independentes não equivalem à demo ponta a ponta. Nenhuma entrega à caixa pessoal externa ou ação corretiva automática.
+Imagens e dependências têm versões explícitas; digests e justificativas ficam nas configurações e especificações. O uso pessoal local não exige funcionalidades comerciais, mas cada ferramenta mantém seus próprios termos de licença.
 
-### Tecnologias e responsabilidades
+## O que já foi demonstrado
 
-| Tecnologia | Responsabilidade |
-| --- | --- |
-| Node.js + TypeScript | API fictícia e coletor interno agregado, sem framework adicional |
-| Keycloak | Gerenciar usuários, grupos e MFA com TOTP |
-| OAuth2 Proxy | Integrar autenticação OIDC e restringir o acesso à aplicação |
-| Zabbix + PostgreSQL | Disponibilidade e falhas repetidas de autenticação validadas; configuração/histórico persistentes |
-| n8n + Ollama/Qwen2.5 + Mailpit | Infraestrutura inicial ativa na entrega 04; workflows de incidentes/relatórios ainda pendentes |
-| Docker Compose | Orquestrar serviços, redes e volumes locais |
+| Área | Resultado observado | Evidências |
+| --- | --- | --- |
+| Fundação | API com health check, execução não root e sem porta publicada no host | [Entrega 01](docs/evidence/01-local-foundation.md) |
+| Identidade | Operadora com MFA acessa; visitante autenticada recebe 403; gateway rejeita tokens/cookies inválidos nos testes | [Entrega 02](docs/evidence/02-identity-access.md) |
+| Monitoramento | Queda/retorno da API, limiar de falhas de login e alerta técnico de coleta; histórico preservado nos ensaios | [Entrega 03](docs/evidence/03-monitoring.md) |
+| Incidentes | Ciclos reais distintos, encerramento correlacionado e replay concorrente sem criar novos registros | [Entrega 04](docs/evidence/04-incident-automation.md) |
+| Relatórios | Inferência local real, HTML persistido, aceite SMTP e mensagens verificadas no Mailpit | [Matriz de aceite](docs/evidence/04-acceptance-matrix.md) |
+| Falhas e retomada | N8n parado manteve incidente/job; IA offline esgotou tentativas; SMTP offline deixou envio desconhecido sem reenvio cego | [Resultados e limites](docs/evidence/04-incident-automation.md) |
 
-A [SPEC 04](docs/features/04-incident-automation/SPEC.md) define PostgreSQL exclusivo da automação: infraestrutura/bancos/papéis separados já criados; modelo e rotinas transacionais de incidentes ainda serão implementados. Instalação/testes iniciais no [runbook parcial 04](docs/runbooks/incident-automation.md).
+**Os testes não são todos equivalentes:** há suites isoladas, ensaios com containers reais e verificações de navegador relatadas pela autora. A documentação identifica a origem e os limites de cada evidência. Fluxo funcional não significa que todos os critérios de endurecimento estejam concluídos.
 
-O uso pessoal local do n8n é gratuito, mas a ferramenta possui licença própria. O Docker Desktop também permite uso pessoal gratuito conforme seus termos. Não é necessário contratar funcionalidades comerciais desses produtos.
+## Interfaces locais
 
-## Funcionalidades planejadas
+As URLs abaixo só funcionam **na máquina em que o laboratório estiver instalado e iniciado**. Não há demonstração pública hospedada.
 
-### 1. Acesso baseado em identidade
+| Interface | URL | Uso |
+| --- | --- | --- |
+| Aplicação protegida | `http://app.localhost:4180/` | Acesso pelo gateway; contas fictícias com MFA |
+| Identidade | `http://keycloak.localhost:8080/` | Autenticação e administração local do Keycloak |
+| Monitoramento | `http://localhost:8081/` | Painel privado do Zabbix |
+| Automação | `http://127.0.0.1:5678/` | Editor autenticado do n8n |
+| Caixa de e-mail | `http://127.0.0.1:8025/` | Relatórios recebidos no Mailpit, com autenticação |
 
-- Criar uma conta fictícia autorizada e outra sem autorização.
-- Configurar autenticação OIDC entre Keycloak e gateway.
-- Exigir MFA com TOTP para o acesso demonstrado.
-- Aplicar uma política explícita de autorização no gateway.
-- Comprovar que autenticação bem-sucedida não implica autorização.
-- Impedir acesso direto à API por uma porta publicada no host.
+Os bindings dessas interfaces usam loopback (`127.0.0.1`). API, receptor, bancos, Zabbix server, coletor, Ollama e SMTP não publicam portas no host. As contas administrativas do Zabbix, n8n e Mailpit são próprias de cada serviço; **não estão todas integradas ao login da aplicação**.
 
-A permissão implementada é a associação ao grupo exato `/secureops-operators`, validada pelo OAuth2 Proxy, não por headers enviados pelo navegador.
+Não há senhas de demonstração no repositório. Elas são geradas ou cadastradas localmente; nunca reutilize credenciais pessoais.
 
-### 2. Monitoramento de disponibilidade
+## Como executar
 
-- Disponibilizar um endpoint `/health` sem dados sensíveis.
-- Configurar verificações periódicas pela rede interna do laboratório.
-- Identificar indisponibilidade e recuperação.
-- Permitir uma simulação controlada de falha ao parar o container da API.
+### Pré-requisitos
 
-O monitoramento interno não comprova a saúde de todo o caminho percorrido pelo usuário. Falhas no gateway, na autenticação ou no navegador podem existir mesmo com a API saudável.
+- Docker com containers Linux e Docker Compose. Ambiente validado em Windows/PowerShell, Docker Engine 28.5.1 e Compose v2.40.2 via Docker Desktop.
+- Recursos para executar a stack e a inferência local. O ambiente de validação tinha 12 CPUs e aproximadamente 7,6 GiB disponíveis ao Docker; isso **não é um requisito mínimo aferido**. Os pesos do modelo ocupam aproximadamente 986 MB, além das imagens e dos volumes.
+- Portas de loopback 4180, 8080, 8081, 5678 e 8025 livres para o laboratório completo.
+- Internet na instalação inicial para imagens, dependências e modelo. A inferência dos relatórios usa o modelo local, não uma API de IA em nuvem.
 
-### 3. Incidentes e relatórios com IA — implementação inicial
+Não é necessário instalar Node.js no host para executar a API e seus testes via Docker. Os inicializadores de segredos usam recursos do Windows/PowerShell; instalação em outro sistema exige adaptação e não foi validada de ponta a ponta.
 
-- Receber eventos do monitor por webhook.
-- Validar e normalizar os dados recebidos.
-- Registrar serviço afetado, estado, horários e identificador do incidente.
-- Evitar múltiplos incidentes abertos para a mesma indisponibilidade.
-- Encerrar o incidente após a recuperação e calcular sua duração observada.
-- Manter registros persistentes e consultáveis sem integrações externas obrigatórias.
-- Gerar análise em português com IA local a partir de fatos/agregados sanitizados, sem logs brutos ou segredos.
-- Produzir HTML com fatos, hipóteses, limitações e recomendações preventivas para avaliação humana, sem executar ações ou prometer previsão validada.
-- Enviar pelo SMTP de laboratório para caixa local visualizada no navegador; proposta de Mailpit, não inbox pessoal externa.
+### 1. Conhecer a base: API e testes
 
-A autenticação do webhook, a persistência e o tratamento de eventos repetidos ou fora de ordem serão definidos nas especificações.
-
-### 4. Documentação operacional
-
-- Documentar arquitetura e decisões técnicas.
-- Registrar evidências dos testes sem expor credenciais ou tokens.
-- Escrever um runbook de diagnóstico e recuperação.
-- Produzir um relato curto do incidente simulado: impacto, linha do tempo, causa e melhorias.
-
-## Demonstrações esperadas
-
-| Cenário | Resultado esperado |
-| --- | --- |
-| Acesso sem sessão válida | O gateway exige autenticação |
-| Login da operadora | MFA exigido e acesso permitido após autorização |
-| Login da visitante | Identidade autenticada, mas acesso à aplicação negado |
-| Tentativa de acesso direto pela porta da API no host | Aplicação não acessível por esse caminho |
-| Parada do container da API | Monitor detecta falha e automação registra incidente |
-| Repetição do evento de falha | Nenhum incidente aberto duplicado |
-| Retorno da API | Monitor detecta recuperação e automação encerra o incidente |
-
-Identidade e monitoramento foram validados nas entregas 02/03, com origem manual/automática e limites nas evidências. Abertura/deduplicação/encerramento persistente de incidentes pela automação ainda são metas da entrega 04; eventos do Zabbix não comprovam esse fluxo futuro.
-
-## Segurança e limites
-
-- Não versionar senhas, tokens, cookies de sessão, sementes TOTP ou arquivos `.env` com valores reais.
-- Fornecer futuramente um `.env.example` apenas com nomes e valores fictícios seguros.
-- Não reutilizar credenciais pessoais ou corporativas.
-- Não publicar interfaces administrativas na internet.
-- Executar testes somente contra os serviços do próprio laboratório.
-- Manter o monitor e o receptor de eventos fora do container da API, para que a falha simulada não derrube todo o fluxo.
-- Não assumir que volumes locais fornecem backup, alta disponibilidade ou proteção contra adulteração.
-
-### O que o laboratório não comprova
-
-- **ZTNA completo:** gateway com identidade e MFA demonstra alguns princípios de Zero Trust, mas não equivale a uma plataforma ZTNA com avaliação de dispositivo e políticas contínuas.
-- **Firewall completo:** redes Docker e ausência de portas publicadas reduzem exposição, mas não substituem uma política de firewall validada.
-- **Proteção de produção:** o projeto não inclui, por padrão, alta disponibilidade, gestão completa de segredos, auditoria imutável ou endurecimento de todos os componentes.
-- **SSO entre múltiplas aplicações:** uma integração OIDC isolada não demonstra, sozinha, uma experiência de SSO entre vários serviços.
-- **Segurança de transporte pronta:** a configuração de HTTPS local e as exceções eventualmente necessárias ao desenvolvimento precisam ser explicitadas antes da implementação.
-
-## Fora do escopo inicial
-
-- Infraestrutura cloud, domínio próprio e Cloudflare.
-- Integração obrigatória com Zendesk, e-mail ou mensageria externa.
-- Kubernetes, SIEM, antivírus corporativo e múltiplos ambientes.
-- Interface elaborada ou aplicação financeira real.
-- Recuperação automática com ações privilegiadas.
-- IA em nuvem, envio de logs para provedores externos e ações corretivas executadas por IA. IA local para relatórios foi solicitada na entrega 04 e está em especificação, não excluída do produto.
-
-### Extensão opcional: WAF
-
-Após validar o fluxo principal, poderá ser avaliado um proxy com ModSecurity e OWASP Core Rule Set para observar requisições permitidas, bloqueios e falsos positivos.
-
-Essa extensão deverá ter especificação própria e não será considerada implementada apenas pela presença de um proxy ou de uma regra didática.
-
-## Execução
-
-### Pré-requisitos, build e testes
-
-A partir da raiz do projeto, no PowerShell, com Docker em modo Linux:
-
-- Ambiente validado: Docker Engine `28.5.1`, Compose `v2.40.2-desktop.1`, Linux `amd64` via Docker Desktop.
-- Versões da aplicação: Node `24.22.1`, TypeScript `5.9.3`, `@types/node` `24.19.2`.
-- Fundação sem portas no host; identidade exige **4180 e 8080 livres em loopback**. Snapshots finais: API 22.05 MiB, Keycloak 615.5 MiB, gateway 24.86 MiB; não são requisitos mínimos nem medição de pico. O daemon dispunha de 12 CPUs e 7,61 GiB totais; espaço necessário não foi medido.
+Na raiz de uma cópia local do repositório:
 
 ```powershell
 docker compose config --quiet
 docker compose --profile tools run --build --rm api-test
 docker compose build api
-```
-
-Não é necessário instalar Node no host nem criar `.env`. O build inicial requer internet para obter a imagem Node `24.22.1-bookworm-slim` e instalar os pacotes pelo lockfile. O container `api-test` compila TypeScript e executa 35 testes com `network_mode: none`, sem mounts nem portas publicadas, e é removido ao terminar. Confira `$LASTEXITCODE`: o resultado esperado é `0` em cada comando; não avance se houver falha.
-
-A imagem `secureops-api:0.1.0` contém o JavaScript da aplicação e o probe, sem copiar compilador, testes ou `node_modules` do build. A API executa como `node`. O serviço `probe` reutiliza essa imagem local: execute `docker compose build api` antes de usá-lo. Apenas `api` tem build de runtime, evitando duas exportações concorrentes para a mesma tag. `api-test` tem imagem separada.
-
-Código: [`apps/api/src`](apps/api/src). Testes: [`apps/api/test`](apps/api/test). Resultados e limitações: [evidências](docs/evidence/01-local-foundation.md).
-
-### Iniciar, verificar e diagnosticar
-
-Após o build, inicie somente a API e espere até 60 segundos pela saúde:
-
-```powershell
 docker compose up -d --wait --wait-timeout 60 api
 docker compose --profile tools run --rm --no-deps probe
-docker compose logs --no-color api
 ```
 
-O probe consulta `http://api:3000/health`, exige `200` e o JSON esperado e limita a requisição completa a 2 segundos. O health check usa o mesmo script contra `127.0.0.1` dentro do container. Os auxiliares ficam no profile `tools` e não são serviços permanentes; não dependem do início automático da API.
+Execute um comando por vez e confirme `$LASTEXITCODE` igual a `0` antes de continuar. O teste compila a aplicação e executa 35 testes em container sem rede; o probe verifica o health check pela rede interna. **Esses comandos iniciam somente a fundação, não o laboratório completo.** A API não fica disponível diretamente no navegador.
 
-A API não tem porta publicada; acesso do navegador é pelo gateway em **http://app.localhost:4180/**, conforme o [runbook de identidade](docs/runbooks/identity-access.md). HTTP não cifra o tráfego fictício; máquina e Docker pertencem à base de confiança. Ausência de publicação não comprova isolamento absoluto.
+### 2. Montar o laboratório completo, por etapas
 
-### Simular falha e recuperar
+Siga os runbooks nesta ordem; não basta executar um único `docker compose up`:
 
-```powershell
-docker compose stop api
-docker compose --profile tools run --rm --no-deps probe
-$probeExit = $LASTEXITCODE
-if ($probeExit -ne 1) { throw 'Esperado probe com codigo 1 enquanto API esta parada' }
-docker compose up -d --wait --wait-timeout 60 api
-docker compose --profile tools run --rm --no-deps probe
-docker compose stop api
+| Etapa | Procedimento | Configurações importantes |
+| --- | --- | --- |
+| Fundação | [API e execução local](docs/runbooks/local-foundation.md) | Build, health check, redes e diagnóstico |
+| Identidade | [Identidade e acesso](docs/runbooks/identity-access.md) | Segredos exclusivos, contas fictícias, grupo autorizado e cadastro manual de TOTP |
+| Monitoramento | [Zabbix e coletor](docs/runbooks/monitoring.md) | Banco, host, itens/triggers, permissões técnicas e painel |
+| Automação | [Incidentes e relatórios](docs/runbooks/incident-automation.md) | Banco separado, migrações, allowlist, modelo local, credenciais e workflows |
+| Demonstração | [Roteiro integrado](docs/runbooks/interview-demo.md) | Percurso curto e ciclo opcional de falha/recuperação |
+
+**Reprodução tem passos manuais.** O cadastro TOTP, as contas das interfaces e os vínculos de credenciais não são distribuídos com o código. IDs de objetos do Zabbix e mapeamentos da action dependem da instância; devem ser conferidos, não copiados cegamente. A instalação completa em uma segunda máquina ainda não foi validada.
+
+### 3. Retomar uma instalação existente
+
+Use os procedimentos de retomada dos runbooks, preservando volumes, chaves e credenciais. Os inicializadores em `scripts/Initialize-*.ps1` são para instalação nova e recusam sobrescrever arquivos existentes — **não são comandos de reset**.
+
+Não use `down -v`, `prune` ou `--remove-orphans` para resolver um aviso ou repetir uma demonstração. Parar a API pode gerar um incidente real no próprio laboratório; siga o roteiro que a restaura ao terminar.
+
+## Decisões que importam
+
+- **Autorização no gateway:** estar autenticado não basta; o grupo autorizado é conferido antes de encaminhar a requisição à API.
+- **Monitoramento fora da aplicação:** parar a API não para o monitor nem o receptor de eventos.
+- **Receptor separado do n8n:** um candidato de ingestão direta no n8n reteve headers de entrada nos testes. O receptor mínimo evita encaminhar esses segredos à automação de relatórios.
+- **Consistência no banco:** identidade dos eventos, transações e constraints sustentam a deduplicação; não se usa o histórico de execuções do n8n como banco de incidentes.
+- **Relatório assíncrono:** IA e SMTP ficam fora da confirmação do webhook, permitindo registrar incidentes mesmo quando a geração está indisponível.
+- **Falha de envio explícita:** uma aceitação SMTP ambígua vira `delivery_unknown`, sem reenvio automático. Aceite SMTP não comprova leitura humana nem entrega fora do host.
+
+## Segurança e limitações
+
+- Apenas serviços, contas e dados fictícios do próprio laboratório. Sem testes em sistemas externos, túneis públicos ou portas abertas no roteador.
+- Senhas, tokens, cookies, sementes TOTP e arquivos locais de credenciais não devem ser versionados nem incluídos em logs, capturas ou exports. A pasta `.local/` é ignorada pelo Git, mas continua sensível na máquina.
+- HTTP e SMTP locais usam exceções de transporte documentadas, sem confidencialidade de TLS. Host e Docker fazem parte da base de confiança; redes Docker não garantem isolamento absoluto nem bloqueio geral de saída.
+- A IA pode alucinar, inclusive afirmar causas sem evidência. Validação de JSON e escape de HTML protegem formato e renderização, **não a verdade do texto**. Os relatórios exigem avaliação humana.
+- Não há ações corretivas automáticas, administração de serviços pela IA, envio de logs a provedores de IA ou SMTP externo configurado.
+- Volumes fornecem persistência, não backup, alta disponibilidade ou auditoria imutável. Há pendências de retry/reconciliação SMTP e de validação integrada descritas na matriz.
+- O laboratório não é uma implementação completa de ZTNA, SIEM ou segurança de produção. Um alerta de login é sinal de triagem, não prova de ataque; API saudável não comprova todo o caminho do usuário.
+
+## Organização do repositório
+
+```text
+apps/                   API, coletor de identidade e receptor de incidentes
+infra/                  Configurações, migrações, workflows e testes de integração
+scripts/                Inicialização, verificações e ensaios operacionais
+docs/
+  architecture.md       Responsabilidades, fronteiras e decisões
+  roadmap.md            Entregas e evolução do projeto
+  features/             Especificações e planos de execução
+  runbooks/             Instalação, operação e demonstração
+  evidence/             Resultados sanitizados e limitações dos testes
+compose*.yaml           Composição modular dos serviços locais
 ```
 
-A falha intermediária (`probe_failed`, código `1`) é esperada; antes e depois dela, o probe deve retornar `probe_succeeded`, código `0`. `--no-deps` impede que o teste negativo inicie serviços. O limite HTTP é de 2 segundos; o tempo total do comando inclui criar/remover o container.
+O arquivo [docs/topology.html](docs/topology.html) oferece mapas visuais detalhados de **identidade e monitoramento**. No GitHub, ele abre como código: baixe ou abra a cópia local no navegador. Para o fluxo atual de automação, use o diagrama deste README e a arquitetura; não trate a topologia HTML como representação atualizada de toda a entrega 04.
 
-`up --wait` retoma o container parado sem recriá-lo quando configuração/imagem não mudou. `docker compose start api` não aguarda saúde. O roteiro acima é o ensaio mínimo da Fundação e **a última linha deixa a API parada**; no laboratório com monitoramento, prefira o teste da entrega 03 abaixo, que a restaura. A API não tem volume, mas identidade/monitoramento têm dados persistentes. Não execute limpeza ampla ou `down -v`.
+## Evolução
 
-Para inspecionar bindings, usuário efetivo, redes e logs de saúde, siga o [runbook da Fundação Local](docs/runbooks/local-foundation.md). Esse procedimento complementa o probe: sucesso interno não comprova ausência de publicação de portas. Os resultados medidos e os limites estão nas [evidências](docs/evidence/01-local-foundation.md).
+O próximo passo não é ampliar a infraestrutura, mas consolidar o que foi demonstrado: revisão semântica da IA, caminhos de falha/retry, validação integrada de autenticação e reprodução em outra instalação. O [roadmap](docs/roadmap.md) registra a evolução; a [matriz de aceite](docs/evidence/04-acceptance-matrix.md) diferencia o fluxo funcional dos requisitos ainda pendentes.
 
-### Consultar o monitoramento implementado
-
-Painel: **http://localhost:8081/**, senha exclusiva do laboratório e acesso apenas em loopback. Com os sete serviços ativos, os seguintes checks não interrompem a API nem precisam do token administrativo temporário:
-
-```powershell
-./scripts/Test-MonitoringInfrastructure.ps1 -Runtime
-./scripts/Test-MonitoringCollector.ps1 -Runtime
-./scripts/Test-MonitoringAvailability.ps1
-```
-
-Para repetir dois ciclos autorizados apenas da API, `./scripts/Test-MonitoringAvailability.ps1 -RunFailureCycles` a restaura ao terminar. Cenários de segurança/falhas/persistência, pré-requisitos e efeitos estão no [runbook de monitoramento](docs/runbooks/monitoring.md); não executar todos indiscriminadamente nem recriar segredos para repetir testes. Nodata não monitora continuamente um Zabbix server parado, e alerta de LOGIN_ERROR é triagem, não prova de ataque.
-
-## Próximos passos
-
-1. Continuar a entrega 04 pelo [PLAN](docs/features/04-incident-automation/PLAN.md): fechar contrato de eventos/parser, implementar transação de incidentes, workflows e relatório HTML/SMTP com IA real. Infraestrutura ativa não substitui os gates e aceites funcionais.
-2. Reproduzir identidade/monitoramento pelos respectivos runbooks, preservando credenciais, TOTP, grupos e volumes. Não enviar segredos ou callbacks ao chat.
-3. Depois da automação, executar a demonstração integrada da entrega 05 conforme o [roadmap](docs/roadmap.md). Monitoramento concluído não significa projeto inteiro concluído.
-
-## Resultado pretendido
-
-Demonstrar, de ponta a ponta, que um serviço pode ter acesso controlado, falhas detectáveis e tratamento de incidentes automatizado — com decisões e limitações explicadas de forma clara.
+**Em uma frase:** este projeto demonstra como controlar quem acessa um serviço, detectar falhas, manter incidentes consistentes e produzir relatórios locais — explicando também onde termina a evidência e começa uma hipótese.

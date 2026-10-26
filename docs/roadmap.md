@@ -99,9 +99,15 @@ Critérios de saída:
 
 ## 04 — Automação de incidentes
 
+**Marco atual: demo mínima funcional entregue.** Autora priorizou validação de conceitos/entrevista e encerrou a rodada extensa de testes. Fluxo retomado; [roteiro curto](runbooks/interview-demo.md). Isso não altera silenciosamente os critérios originais nem equivale a aceite integral; lacunas e alucinação conhecida da IA permanecem documentadas.
+
 **Resultado esperado:** eventos reais do monitor geram incidentes persistentes e relatórios HTML com análise de IA, enviados por SMTP para a caixa local de laboratório.
 
-**Estado em 26/10/2026:** autora autorizou escolha de versão/modelo e início gradual. Baseline técnica selecionada na SPEC: n8n 2.44.7, Ollama 0.40.11/Qwen2.5 1.5B Q4_K_M, Mailpit 1.32.0 e PostgreSQL 17.11 exclusivo. Quatro serviços novos ativos; owner cadastrado pela autora, seis testes isolados de integridade e 66 checks de infraestrutura aprovados. Inferência real sintética e SMTP fictício separados; nenhum workflow/action/incidente/relatório integrado. Gate de contrato Zabbix e IA-01–IA-14 ainda pendentes; [evidências iniciais](evidence/04-incident-automation.md).
+**Estado em 26/10/2026:** fluxo integrado gerou relatórios #4/#5, persistiu HTML e recebeu aceite SMTP/mensagens no Mailpit. Prompt v1 teve afirmação causal rejeitada na revisão técnica; v2 versionado pela migração 003, sem reescrever relatórios existentes. N8n offline não impediu incidente/job #5: retomada processou o job na primeira tentativa. Replay real de 20 duplicatas após restart não alterou ledger/incidentes/jobs/outbox. Regressões repetidas sem interferência passaram. **Entrega em validação, não concluída:** revisão humana, ensaio integrado de autenticação e demais lacunas na [matriz IA-01–IA-14](evidence/04-acceptance-matrix.md).
+
+**Incremento do receptor:** núcleo SQL passou em 86 checks isolados. Gate n8n reprovou porque header/marcador persistiram em execution_data; candidato não foi publicado. Autora aprovou então receptor TypeScript dedicado. Fixture PostgreSQL validou concorrência 1 applied/19 duplicates, rollback e perda de ACK após commit sem duplicação; banco offline retorna 503. Receptor ativo sem Zabbix/migração/allowlist, portanto ainda não aceita contrato de evento funcional.
+
+Após conhecer o bloqueio, autora autorizou revisão e aprovou receptor dedicado, deixando n8n somente com snapshots sanitizados. O diagnóstico posterior corrigiu a inferência indevida de travamento no Schedule Trigger: snapshot inicial sem progresso era enganoso; logs mostraram erro na expressão do prompt. Expressão e transporte HTTP JSON corrigidos, sem relaxar schema SQL. IA local real continua requisito; conteúdo gerado permanece sujeito à revisão humana.
 
 Escopo da especificação:
 

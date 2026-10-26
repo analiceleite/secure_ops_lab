@@ -1,6 +1,6 @@
 # Arquitetura do SecureOps Lab
 
-> Status: Fundação, Identidade e Monitoramento concluídos. Entrega 04 em implementação inicial: infraestrutura n8n/PostgreSQL exclusivo/Ollama/Qwen2.5/Mailpit ativa, smokes independentes aprovados; workflow de incidentes/relatórios e integração Zabbix ainda pendentes. Decisões compartilhadas aqui; detalhes executáveis nas SPECS.
+> Status: Fundação, Identidade e Monitoramento concluídos. Entrega 04 em validação: fluxo real Zabbix→receptor→PostgreSQL→n8n/Ollama→HTML→Mailpit exercitado; relatórios #4/#5 entregues. Aceite parcial e limites na [matriz](evidence/04-acceptance-matrix.md). Agendamento não estava travado: metadata inicial sem progresso não localiza o node de falha.
 
 ## 1. Restrições
 
@@ -23,8 +23,11 @@ flowchart TD
     collector[Coletor agregado · ativo] -->|Admin REST: leitura tecnica validada| keycloak
     zabbix -->|HTTP interno autenticado · integrado| collector
     zabbix --- db[PostgreSQL exclusivo do monitoramento]
-    zabbix -.->|Integração pendente · entrega 04| n8n[n8n · infraestrutura ativa, sem workflows]
-    n8n -.-> store[PostgreSQL separado · banco ativo, sem incidentes]
+    zabbix -->|Action restrita · problem/recovery reais| receiver[Receptor TypeScript · ativo]
+    receiver -->|Transação + ACK · ciclos reais| store[PostgreSQL separado · incidentes/jobs/outbox]
+    n8n[n8n · relatórios locais] -->|Jobs e snapshots sanitizados| store
+    n8n --> ollama[Ollama · IA local]
+    n8n --> mailpit[Mailpit · SMTP/caixa local autenticados]
 ```
 
 | Componente | Responsabilidade | Não deve fazer |
@@ -35,12 +38,15 @@ flowchart TD
 | Zabbix | Detectar disponibilidade, avaliar agregado de falhas de login e registrar problemas/recuperações | Ser SIEM ou prova de ataque confirmado; confundir ausência de coleta com saúde |
 | PostgreSQL do Zabbix | Persistir configuração, histórico e eventos do monitoramento | Ser apresentado como banco da futura automação sem decisão na SPEC 04 |
 | Coletor interno, ativo | Ler eventos com client técnico view-events e retornar agregado sanitizado | Usar administrador/gateway, alterar usuários ou expor logs/tokens brutos |
-| n8n | Validar eventos e coordenar o ciclo de incidentes | Controlar o Docker ou executar ações privilegiadas |
+| Receptor TypeScript, ativo na entrega 04 | Autenticar/validar eventos e confirmar após transação SQL quando migração/allowlist estiverem provisionadas | Persistir headers/corpo bruto, executar IA, controlar Docker ou publicar API no host |
+| n8n, infraestrutura ativa | Futuramente coordenar IA/HTML/SMTP de jobs com snapshots sanitizados | Receber segredo/header bruto do webhook Zabbix, editar estado de incidentes ou executar ações privilegiadas |
 | Persistência de incidentes | Manter estado consultável após reinícios | Ser confundida com o histórico temporário de execuções do n8n |
 
-A [SPEC 04](features/04-incident-automation/SPEC.md) define PostgreSQL exclusivo da automação, sem reutilizar zabbix-db, com bancos/papéis distintos para metadados n8n e incidentes/relatórios. Sob autorização da autora para escolher versões/modelo e iniciar, infraestrutura e modelo local foram instalados. Ollama e SMTP não publicam portas; editor n8n e UI Mailpit em loopback. Transação de incidentes/workflows/action/HTML ainda não implementados. Redes, transporte, ACK após commit e limites de replay ficam centralizados na SPEC; linhas tracejadas continuam indicando integração pendente.
+A [SPEC 04](features/04-incident-automation/SPEC.md) define PostgreSQL exclusivo da automação, sem reutilizar zabbix-db, com bancos/papéis distintos. Migrações 001–003 e allowlist ativas. A action e os dois workflows foram retomados após corrigir expressão do prompt e transporte JSON do node HTTP. Relatórios reais persistidos/entregues; jobs anteriores com falha e relatório v1 rejeitado semanticamente foram preservados. Ollama e SMTP não publicam portas; editor n8n e UI Mailpit em loopback. Fluxo funcional não equivale a aceite completo.
 
-API, Keycloak e gateway pertencem à entrega 02 concluída. Overlay Zabbix/coletor executando com integração validada no PLAN/evidências 03. Kuma nunca foi instalado; n8n agora executa sem workflows. Problema único do Zabbix não comprova deduplicação da automação futura; smoke de IA/SMTP não equivale a relatório integrado.
+**Receptor revisado e aprovado:** candidato n8n de ingestão reprovou a não persistência de headers, mesmo com flags none. Receptor TypeScript mínimo sem porta no host, papel incident_ingest e redes events/automation; n8n continua fora de events. Testes HTTP/PostgreSQL efêmeros passaram. Depois da autorização da autora, migrações/allowlist foram instaladas e o Zabbix server conectado à rede `events`; isso não comprova macros/action/ingestão real. A-D02/A-D03/A-D04/A-D06/A-D07 estão revisadas; n8n receberá somente snapshots sanitizados.
+
+API, Keycloak e gateway pertencem à entrega 02 concluída. Overlay Zabbix/coletor executando com integração validada no PLAN/evidências 03. Kuma nunca foi instalado. Um problema Zabbix não comprova deduplicação da automação; smoke de IA/SMTP não equivale a relatório integrado.
 
 ## 3. Acesso e identidade
 
@@ -72,7 +78,7 @@ Topologia lógica proposta:
 | Serviço | Gateway, API e monitor | Encaminhamento e health check |
 | Monitoring, interna | Banco, server, frontend e coletor | Comunicação do monitoramento e métricas agregadas |
 | Operations, bridge não interna | Frontend Zabbix | Publicação do painel exclusivamente em loopback |
-| Eventos, futura | Zabbix e n8n, desenho a definir na entrega 04 | Integração ainda não implementada |
+| Eventos, interna | Receptor dedicado; Zabbix só após gate real | n8n foi removido; Zabbix ainda não conectado e nenhuma action criada |
 
 A rede `identity` é bridge **não interna**, após aprovação D04; `service` permanece interna, API somente nela e sem porta. M-D03 acrescenta `monitoring` interna e `operations` não interna para o frontend; coletor participa de `monitoring` e `identity`, sem acesso a `service`. Essas bridges permitem rota de saída: não alegar egress bloqueado. Não realizar teste contra sistemas externos. Fronteiras completas na [SPEC 03](features/03-monitoring/SPEC.md); identidade preservada conforme [SPEC 02](features/02-identity-access/SPEC.md).
 

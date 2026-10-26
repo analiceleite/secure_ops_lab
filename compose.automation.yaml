@@ -1,4 +1,4 @@
-# Incremento inicial 04: infraestrutura; sem actions/workflows/alteracao do server Zabbix.
+# Entrega 04: receptor + infraestrutura; sem action/alteracao do server Zabbix neste incremento.
 x-automation-runtime: &automation-runtime
   profiles: [automation]
   cap_drop: [ALL]
@@ -10,6 +10,28 @@ x-automation-runtime: &automation-runtime
     options: {max-size: "10m", max-file: "3"}
 
 services:
+  incident-receiver:
+    <<: *automation-runtime
+    image: secureops-incident-receiver:0.1.0
+    build: {context: ./apps/incident-receiver, target: runtime}
+    user: "1000:1000"
+    read_only: true
+    mem_limit: 128m
+    cpus: 1
+    networks: [events, automation]
+    secrets: [automation-webhook-key, automation-incident-ingest]
+    environment:
+      INCIDENT_DB_HOST: automation-db
+    depends_on:
+      automation-db: {condition: service_healthy}
+    healthcheck:
+      # Liveness do processo; nao prova instalacao da migracao/allowlist Zabbix.
+      test: [CMD, node, probe.mjs]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+
   automation-db:
     <<: *automation-runtime
     image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
@@ -42,7 +64,7 @@ services:
     user: "1000:1000"
     read_only: true
     mem_limit: 512m
-    networks: [automation, events, inference, mail, operations]
+    networks: [automation, inference, mail, operations]
     ports: ["127.0.0.1:5678:5678"]
     volumes: [n8n-data:/home/node/.n8n]
     tmpfs:
@@ -88,7 +110,8 @@ services:
       N8N_FRONTEND_SENTRY_DSN: ""
       NODES_INCLUDE: '["n8n-nodes-base.webhook","n8n-nodes-base.respondToWebhook","n8n-nodes-base.postgres","n8n-nodes-base.httpRequest","n8n-nodes-base.emailSend","n8n-nodes-base.scheduleTrigger","n8n-nodes-base.set","n8n-nodes-base.if","n8n-nodes-base.manualTrigger"]'
       EXECUTIONS_MODE: regular
-      EXECUTIONS_TIMEOUT: "10"
+      # Permite inferência local com timeout próprio (120s) sem prender a ingestão do receptor.
+      EXECUTIONS_TIMEOUT: "180"
       EXECUTIONS_TIMEOUT_MAX: "300"
       N8N_CONCURRENCY_PRODUCTION_LIMIT: "4"
       EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
@@ -190,6 +213,7 @@ secrets:
   automation-incident-ingest: {file: ./.local/automation/incident-ingest-password}
   automation-incident-report: {file: ./.local/automation/incident-report-password}
   automation-incident-reader: {file: ./.local/automation/incident-reader-password}
+  automation-webhook-key: {file: ./.local/automation/webhook-key}
   automation-n8n-key: {file: ./.local/automation/n8n-encryption-key}
   automation-mailpit-ui: {file: ./.local/automation/mailpit-ui-auth}
   automation-mailpit-smtp: {file: ./.local/automation/mailpit-smtp-auth}

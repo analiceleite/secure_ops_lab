@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {createConnection} from 'node:net';
 import {createInterface} from 'node:readline';
 import {randomUUID} from 'node:crypto';
-const phase=process.argv[2];assert.ok(['interfaces','model','smtp'].includes(phase));
+const phase=process.argv[2];assert.ok(['interfaces','model','smtp','report'].includes(phase));
 const lock=JSON.parse(readFileSync(new URL('./model-lock.json',import.meta.url),'utf8'));
 const get=(url,options={})=>fetch(url,{redirect:'error',signal:AbortSignal.timeout(10000),...options});
 const pass=(check,fields={})=>console.log(JSON.stringify({check,result:'pass',...fields}));
@@ -35,12 +35,29 @@ async function smtp(auth,recipient,send){
 }
 try{
  if(phase==='interfaces'){
+  assert.equal((await get('http://incident-receiver:3000/health')).status,200);
+  assert.equal((await get('http://incident-receiver:3000/v1/events',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);
   assert.equal((await get('http://n8n:5678/healthz/readiness')).status,200);
   assert.equal((await get('http://n8n:5678/rest/workflows')).status,401);
   assert.equal((await get('http://mailpit:8025/api/v1/messages')).status,401);
   assert.equal((await get('http://mailpit:8025/api/v1/messages',{headers:{Authorization:'Basic '+Buffer.from('wrong:wrong').toString('base64')}})).status,401);
   assert.equal((await get('http://mailpit:8025/api/v1/messages',{headers:{Authorization:'Basic '+Buffer.from(credential('mailpit-ui-auth')).toString('base64')}})).status,200);
-  pass('automation_interfaces',{n8nReadiness:200,unauthenticatedWorkflows:401,unauthenticatedMailbox:401,wrongMailboxPassword:401,authenticatedMailbox:200});
+  pass('automation_interfaces',{receiverLiveness:200,unauthenticatedReceiver:401,n8nReadiness:200,unauthenticatedWorkflows:401,unauthenticatedMailbox:401,wrongMailboxPassword:401,authenticatedMailbox:200});
+ }else if(phase==='report'){
+  const incidentId=process.argv[3];assert.match(incidentId??'',/^[1-9][0-9]*$/);
+  const headers={Authorization:'Basic '+Buffer.from(credential('mailpit-ui-auth')).toString('base64')};
+  const response=await get('http://mailpit:8025/api/v1/messages',{headers});assert.equal(response.status,200);
+  const box=await response.json();
+  const matches=box.messages.filter(m=>m.Subject===`SecureOps | Relatório #${incidentId} v1`);
+  assert.equal(matches.length,1,'mensagem ausente ou repetida');
+  assert.deepEqual(matches[0].To.map(r=>r.Address),['operadora@lab.invalid']);
+  const messageResponse=await get(`http://mailpit:8025/api/v1/message/${encodeURIComponent(matches[0].ID)}`,{headers});
+  assert.equal(messageResponse.status,200);const message=await messageResponse.json();
+  assert.equal(typeof message.HTML,'string');assert.ok(message.HTML.includes(`Relatório de incidente #${incidentId}`));
+  for(const label of ['Fatos observados','Análise gerada por IA local','Hipóteses (não confirmadas)','Cobertura histórica pode ser incompleta'])assert.ok(message.HTML.includes(label));
+  assert.ok(!/<(?:script|iframe|form|img|link|object|embed)\b|\bon[a-z]+\s*=|(?:src|href)\s*=\s*["']?https?:/i.test(message.HTML));
+  assert.ok(message.Text.includes('Fatos observados:'));
+  pass('real_incident_mailpit_report',{incidentId:Number(incidentId),messageId:matches[0].ID,subject:matches[0].Subject,unique:true,html:true,plainText:true,noActiveOrRemoteContent:true,noMessagesDeleted:true,semanticReview:'human_required'});
  }else if(phase==='model'){
   stage='model_metadata';
   const tags=await(await get('http://ollama:11434/api/tags')).json();const tag=tags.models.find(m=>m.name===lock.model);assert.ok(tag);

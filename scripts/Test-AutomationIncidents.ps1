@@ -26,9 +26,10 @@ try{
         if([DateTimeOffset]::UtcNow -gt $deadline){throw 'Fixture sem prontidao em 40s.'}
         Start-Sleep -Milliseconds 300
     }while($true)
-    foreach($step in @(@('postgres','/checks/tests/setup.sql'),@('incidents','/checks/migrations/001-incidents.sql'),@('incidents','/checks/tests/incidents.sql'))){
-        $output=& docker exec $name psql -X -qAt -v ON_ERROR_STOP=1 -U postgres -d $step[0] -f $step[1] 2>&1
-        if($LASTEXITCODE -ne 0){throw "SQL isolado falhou:$($step[1]); valores omitidos. $($output | Select-Object -Last 4)"}
+    foreach($step in @(@('postgres','/checks/tests/setup.sql'),@('incidents','/checks/migrations/001-incidents.sql'),@('incidents','/checks/tests/incidents.sql'),@('incidents','/checks/migrations/002-report-processing.sql'),@('incidents','/checks/tests/reports.sql'),@('incidents','/checks/migrations/003-prompt-v2.sql'),@('incidents','/checks/tests/prompt-v2.sql'))){
+        $priorPreference=$ErrorActionPreference
+        try{$ErrorActionPreference='Continue';$output=& docker exec $name psql -X -qAt -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -U postgres -d $step[0] -f $step[1] 2>&1;$sqlExit=$LASTEXITCODE}finally{$ErrorActionPreference=$priorPreference}
+        if($sqlExit -ne 0){throw "SQL isolado falhou:$($step[1]); valores omitidos. $($output | Select-Object -Last 12)"}
         $output|Where-Object {"$_" -match '^\{'}|Write-Output
     }
     & docker exec $name bash /checks/tests/concurrency.sh

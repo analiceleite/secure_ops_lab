@@ -1,0 +1,42 @@
+{
+  "name": "SecureOps - receptor de incidentes v1",
+  "nodes": [
+    {
+      "id": "receiver", "name": "Evento autenticado", "type": "n8n-nodes-base.webhook", "typeVersion": 2.2,
+      "position": [0, 0], "webhookId": "a4c4234e-8647-4b8d-8c89-089801102250",
+      "parameters": {"httpMethod": "POST", "path": "secureops-incidents-v1", "authentication": "headerAuth", "responseMode": "responseNode", "options": {"rawBody": true}}
+    },
+    {
+      "id": "transport", "name": "Transporte JSON", "type": "n8n-nodes-base.if", "typeVersion": 2.2,
+      "position": [240, 0],
+      "parameters": {"conditions": {"options": {"caseSensitive": true, "typeValidation": "strict", "version": 2}, "conditions": [{"id": "json", "leftValue": "={{ ['application/json', 'application/json; charset=utf-8'].includes(($json.headers['content-type'] || '').toLowerCase()) && !$json.headers['content-encoding'] && !!$input.item.binary?.data?.data }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}], "combinator": "and"}, "options": {}}
+    },
+    {
+      "id": "persist", "name": "Commit do evento", "type": "n8n-nodes-base.postgres", "typeVersion": 2.6,
+      "position": [480, -80], "onError": "continueErrorOutput",
+      "parameters": {"operation": "executeQuery", "query": "SELECT incident.ingest(convert_from(decode($1, 'base64'), 'UTF8')) AS outcome", "options": {"queryReplacement": "={{ [$input.item.binary.data.data] }}", "queryBatching": "independently", "connectionTimeout": 3, "delayClosingIdleConnection": 0}}
+    },
+    {
+      "id": "reply", "name": "Resultado apos commit", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5,
+      "position": [740, -160],
+      "parameters": {"respondWith": "json", "responseBody": "={{ { result: ['applied','duplicate','pending','invalid','conflict'].includes($json.outcome?.result) ? $json.outcome.result : 'unavailable' } }}", "options": {"responseCode": "={{ ['applied','duplicate','pending'].includes($json.outcome?.result) ? 200 : ($json.outcome?.result === 'invalid' ? 400 : ($json.outcome?.result === 'conflict' ? 409 : 503)) }}", "enableStreaming": false}}
+    },
+    {
+      "id": "unavailable", "name": "Persistencia indisponivel", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5,
+      "position": [740, 0],
+      "parameters": {"respondWith": "json", "responseBody": "{\"result\":\"unavailable\"}", "options": {"responseCode": 503, "enableStreaming": false}}
+    },
+    {
+      "id": "invalid", "name": "Transporte invalido", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5,
+      "position": [480, 160],
+      "parameters": {"respondWith": "json", "responseBody": "{\"result\":\"invalid\"}", "options": {"responseCode": 400, "enableStreaming": false}}
+    }
+  ],
+  "connections": {
+    "Evento autenticado": {"main": [[{"node": "Transporte JSON", "type": "main", "index": 0}]]},
+    "Transporte JSON": {"main": [[{"node": "Commit do evento", "type": "main", "index": 0}], [{"node": "Transporte invalido", "type": "main", "index": 0}]]},
+    "Commit do evento": {"main": [[{"node": "Resultado apos commit", "type": "main", "index": 0}], [{"node": "Persistencia indisponivel", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "executionTimeout": 10, "saveDataErrorExecution": "none", "saveDataSuccessExecution": "none", "saveManualExecutions": false, "saveExecutionProgress": false},
+  "pinData": {}
+}

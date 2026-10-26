@@ -72,7 +72,9 @@ services:
       ZBX_STARTPINGERS: "0"
       ZBX_STARTDISCOVERERS: "0"
     secrets: [monitoring-zabbix-db]
-    networks: [monitoring, service]
+    # Conexao interna para entregar alertas ao receptor; sem publicacao de portas.
+    # A rede events e declarada pelo overlay compose.automation.yaml.
+    networks: [monitoring, service, events]
     depends_on:
       zabbix-db:
         condition: service_healthy
@@ -121,6 +123,11 @@ networks:
     driver: bridge
     internal: false
   monitoring:
+    driver: bridge
+    internal: true
+  # Declarada também em compose.automation.yaml para redes Compose independentes,
+  # mas a API do receptor só aparece no overlay de automação.
+  events:
     driver: bridge
     internal: true
   operations:

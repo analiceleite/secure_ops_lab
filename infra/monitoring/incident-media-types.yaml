@@ -1,0 +1,114 @@
+zabbix_export:
+  version: '7.0'
+  media_types:
+    - name: SecureOps incident problem (inactive candidate)
+      type: WEBHOOK
+      parameters:
+        - name: event_type
+          value: problem
+        - name: event_id
+          value: '{EVENT.ID}'
+        - name: problem_event_id
+          value: '{EVENT.ID}'
+        - name: trigger_id
+          value: '{TRIGGER.ID}'
+        - name: host
+          value: '{HOST.HOST}'
+        - name: occurred_at
+          value: '{{EVENT.TIME}.fmttime(%s)}'
+        - name: webhook_key
+          value: '{$SECUREOPS_INCIDENT_WEBHOOK_KEY}'
+      script: |
+        /* Zabbix 7.0 webhook; não registrar params, headers ou corpo. */
+        var conditions = {
+          '25229': {condition: 'api-http', category: 'availability'},
+          '25230': {condition: 'api-http-nodata', category: 'collection'},
+          '25231': {condition: 'auth-threshold', category: 'authentication'},
+          '25232': {condition: 'auth-collection', category: 'collection'}
+        };
+        function fail() { throw 'secureops_delivery_failed'; }
+        var p = JSON.parse(value), map = conditions[p.trigger_id];
+        if (p.event_type !== 'problem' || !map || p.host !== 'secureops-api' ||
+            !/^[a-f0-9]{64}$/.test(p.webhook_key || '') ||
+            !/^[1-9][0-9]{0,19}$/.test(p.event_id || '') ||
+            p.problem_event_id !== p.event_id ||
+            !/^[1-9][0-9]{0,10}$/.test(p.occurred_at || '')) fail();
+        var event = {contract_version: 1, source: 'zabbix', source_instance: 'secureops-lab-zabbix',
+          event_type: 'problem', event_id: p.event_id, problem_event_id: p.problem_event_id,
+          trigger_id: p.trigger_id, host: p.host, service: 'secureops-api',
+          condition: map.condition, category: map.category, occurred_at: p.occurred_at};
+        var req = new HttpRequest();
+        req.addHeader('Content-Type: application/json');
+        req.addHeader('X-SecureOps-Webhook-Key: ' + p.webhook_key);
+        var body = req.post('http://incident-receiver:3000/v1/events', JSON.stringify(event));
+        if (req.getStatus() !== 200) fail();
+        var result;
+        try { result = JSON.parse(body); } catch (e) { fail(); }
+        if (!result || ['applied', 'duplicate'].indexOf(result.result) === -1) fail();
+        return 'OK';
+      timeout: 10s
+      process_tags: 'NO'
+      show_event_menu: 'NO'
+      status: DISABLED
+      max_sessions: '5'
+      message_templates:
+        - event_source: TRIGGERS
+          operation_mode: PROBLEM
+          subject: SecureOps problem
+          message: SecureOps event
+    - name: SecureOps incident recovery (inactive candidate)
+      type: WEBHOOK
+      parameters:
+        - name: event_type
+          value: recovery
+        - name: event_id
+          value: '{EVENT.RECOVERY.ID}'
+        - name: problem_event_id
+          value: '{EVENT.ID}'
+        - name: trigger_id
+          value: '{TRIGGER.ID}'
+        - name: host
+          value: '{HOST.HOST}'
+        - name: occurred_at
+          value: '{{EVENT.RECOVERY.TIME}.fmttime(%s)}'
+        - name: webhook_key
+          value: '{$SECUREOPS_INCIDENT_WEBHOOK_KEY}'
+      script: |
+        /* Zabbix 7.0 webhook; não registrar params, headers ou corpo. */
+        var conditions = {
+          '25229': {condition: 'api-http', category: 'availability'},
+          '25230': {condition: 'api-http-nodata', category: 'collection'},
+          '25231': {condition: 'auth-threshold', category: 'authentication'},
+          '25232': {condition: 'auth-collection', category: 'collection'}
+        };
+        function fail() { throw 'secureops_delivery_failed'; }
+        var p = JSON.parse(value), map = conditions[p.trigger_id];
+        if (p.event_type !== 'recovery' || !map || p.host !== 'secureops-api' ||
+            !/^[a-f0-9]{64}$/.test(p.webhook_key || '') ||
+            !/^[1-9][0-9]{0,19}$/.test(p.event_id || '') ||
+            !/^[1-9][0-9]{0,19}$/.test(p.problem_event_id || '') ||
+            p.event_id === p.problem_event_id ||
+            !/^[1-9][0-9]{0,10}$/.test(p.occurred_at || '')) fail();
+        var event = {contract_version: 1, source: 'zabbix', source_instance: 'secureops-lab-zabbix',
+          event_type: 'recovery', event_id: p.event_id, problem_event_id: p.problem_event_id,
+          trigger_id: p.trigger_id, host: p.host, service: 'secureops-api',
+          condition: map.condition, category: map.category, occurred_at: p.occurred_at};
+        var req = new HttpRequest();
+        req.addHeader('Content-Type: application/json');
+        req.addHeader('X-SecureOps-Webhook-Key: ' + p.webhook_key);
+        var body = req.post('http://incident-receiver:3000/v1/events', JSON.stringify(event));
+        if (req.getStatus() !== 200) fail();
+        var result;
+        try { result = JSON.parse(body); } catch (e) { fail(); }
+        if (!result || ['applied', 'duplicate', 'pending'].indexOf(result.result) === -1) fail();
+        return 'OK';
+      timeout: 10s
+      process_tags: 'NO'
+      show_event_menu: 'NO'
+      status: DISABLED
+      max_sessions: '5'
+      message_templates:
+        - event_source: TRIGGERS
+          operation_mode: RECOVERY
+          subject: SecureOps recovery
+          message: SecureOps recovery event

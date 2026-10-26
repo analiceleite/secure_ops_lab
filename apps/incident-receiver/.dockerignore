@@ -1,0 +1,7 @@
+**
+!package.json
+!package-lock.json
+!*.ts
+!probe.mjs
+!test/
+!test/*.mjs

@@ -2,8 +2,8 @@
 param([switch]$Runtime)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
-$base=@('compose','-f',(Join-Path $root 'compose.yaml'),'-f',(Join-Path $root 'compose.identity.yaml'),'-f',(Join-Path $root 'compose.monitoring.yaml'),'--profile','monitoring-security')
-$full=$base+@('-f',(Join-Path $root 'compose.automation.yaml'),'--profile','automation')
+$base=@('compose','-f',(Join-Path $root 'compose.yaml'),'-f',(Join-Path $root 'compose.identity.yaml'),'-f',(Join-Path $root 'compose.monitoring.yaml'),'-f',(Join-Path $root 'compose.automation.yaml'),'--profile','monitoring-security')
+$full=$base+@('--profile','automation')
 function Read-Config($Arguments){
     $json=& docker @Arguments config --format json
     if($LASTEXITCODE -ne 0){throw 'Compose invalido; nao imprimir configuracao completa.'}
@@ -15,15 +15,16 @@ function Check([string]$Name,[bool]$Ok){if(-not $Ok){throw "check_failed:$Name"}
 foreach($name in @('api','keycloak','oauth2-proxy','zabbix-db','zabbix-server','zabbix-web','identity-event-collector')){
     Check "${name}_configuration_preserved" (($before.services.$name|ConvertTo-Json -Depth 100 -Compress) -ceq ($config.services.$name|ConvertTo-Json -Depth 100 -Compress))
 }
+Check 'zabbix_server_events_network_no_port' ('events' -in $config.services.'zabbix-server'.networks.PSObject.Properties.Name -and -not $config.services.'zabbix-server'.ports)
 foreach($name in @('automation','events','inference','mail')){Check "${name}_internal" ($config.networks.$name.internal -eq $true)}
-$expected=@{ 'automation-db'=@('automation');n8n=@('automation','events','inference','mail','operations');ollama=@('inference');mailpit=@('mail','operations') }
+$expected=@{ 'incident-receiver'=@('events','automation');'automation-db'=@('automation');n8n=@('automation','inference','mail','operations');ollama=@('inference');mailpit=@('mail','operations') }
 foreach($name in $expected.Keys){
     $s=$config.services.$name
     Check "${name}_profile" ('automation' -in $s.profiles)
     Check "${name}_nonroot_caps" ($s.user -in @('1000:1000','999:999') -and 'ALL' -in $s.cap_drop -and 'no-new-privileges:true' -in $s.security_opt)
     Check "${name}_no_privileged_socket" (-not $s.privileged -and -not (@($s.volumes)|Where-Object { $_.source -match 'docker.sock|identity|monitoring' }))
     Check "${name}_networks" (-not (Compare-Object @($expected[$name]|Sort-Object) @($s.networks.PSObject.Properties.Name|Sort-Object)))
-    if($name -in @('automation-db','ollama')){Check "${name}_no_host_ports" (-not $s.ports)}
+    if($name -in @('incident-receiver','automation-db','ollama')){Check "${name}_no_host_ports" (-not $s.ports)}
     else{
         $port=if($name -eq 'n8n'){5678}else{8025}
         Check "${name}_loopback" (@($s.ports).Count -eq 1 -and $s.ports[0].host_ip -eq '127.0.0.1' -and [int]$s.ports[0].published -eq $port)
@@ -33,7 +34,12 @@ foreach($name in $expected.Keys){
 }
 $e=$config.services.n8n.environment
 Check 'n8n_secret_files_only' ($e.DB_POSTGRESDB_PASSWORD_FILE -eq '/run/secrets/automation-n8n-db' -and -not $e.DB_POSTGRESDB_PASSWORD -and $e.N8N_ENCRYPTION_KEY_FILE -eq '/run/secrets/automation-n8n-key' -and -not $e.N8N_ENCRYPTION_KEY)
-Check 'n8n_execution_payloads_not_saved' ($e.EXECUTIONS_DATA_SAVE_ON_SUCCESS -eq 'none' -and $e.EXECUTIONS_DATA_SAVE_ON_ERROR -eq 'none' -and $e.EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS -eq 'false' -and $e.EXECUTIONS_DATA_SAVE_ON_PROGRESS -eq 'false')
+Check 'n8n_execution_retention_minimized_not_no_initial_storage' ($e.EXECUTIONS_DATA_SAVE_ON_SUCCESS -eq 'none' -and $e.EXECUTIONS_DATA_SAVE_ON_ERROR -eq 'none' -and $e.EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS -eq 'false' -and $e.EXECUTIONS_DATA_SAVE_ON_PROGRESS -eq 'false')
+Check 'n8n_execution_timeout_supports_local_ai' ($e.EXECUTIONS_TIMEOUT -eq '180' -and $e.EXECUTIONS_TIMEOUT_MAX -eq '300')
+Check 'receiver_readonly_bounded' ($config.services.'incident-receiver'.read_only -eq $true -and $config.services.'incident-receiver'.cpus -eq 1 -and $config.services.'incident-receiver'.mem_limit -eq 134217728)
+$receiverSecrets=@($config.services.'incident-receiver'.secrets|ForEach-Object {$_.source}|Sort-Object)
+Check 'receiver_only_ingest_and_webhook_secrets' (-not (Compare-Object @('automation-incident-ingest','automation-webhook-key') $receiverSecrets))
+Check 'n8n_no_ingest_or_webhook_secret' (-not(@($config.services.n8n.secrets)|Where-Object {$_.source -in @('automation-incident-ingest','automation-webhook-key')}))
 Check 'n8n_cloud_telemetry_disabled' ($e.N8N_DIAGNOSTICS_ENABLED -eq 'false' -and $e.N8N_AI_GATEWAY_ENABLED -eq 'false' -and $e.N8N_TEMPLATES_ENABLED -eq 'false' -and $e.N8N_LICENSE_AUTO_RENEW_ENABLED -eq 'false')
 Check 'n8n_community_packages_disabled' ($e.N8N_COMMUNITY_PACKAGES_ENABLED -eq 'false' -and $e.N8N_COMMUNITY_PACKAGES_PREVENT_LOADING -eq 'true' -and $e.N8N_UNVERIFIED_PACKAGES_ENABLED -eq 'false')
 $nodes=$e.NODES_INCLUDE|ConvertFrom-Json
@@ -55,7 +61,7 @@ if($Runtime){
         $networks=@($expected[$name]|ForEach-Object {$config.networks.$_.name}|Sort-Object)
         Check "${name}_runtime_networks" (-not(Compare-Object $networks @($c.NetworkSettings.Networks.PSObject.Properties.Name|Sort-Object)))
         $bindings=@($c.HostConfig.PortBindings.PSObject.Properties|ForEach-Object {$_.Value})
-        if($name -in @('automation-db','ollama')){Check "${name}_runtime_no_host_ports" ($bindings.Count -eq 0)}
+        if($name -in @('incident-receiver','automation-db','ollama')){Check "${name}_runtime_no_host_ports" ($bindings.Count -eq 0)}
         else{Check "${name}_runtime_loopback" ($bindings.Count -eq 1 -and $bindings[0].HostIp -eq '127.0.0.1')}
         Check "${name}_runtime_restrictions" ($c.HostConfig.Memory -eq $config.services.$name.mem_limit -and -not(@($c.Mounts)|Where-Object {$_.Source -match 'docker.sock'}) -and ($name -eq 'automation-db' -or $c.HostConfig.ReadonlyRootfs))
     }
