@@ -2,9 +2,9 @@
 
 Laboratório pessoal de operações de TI e segurança para praticar controle de acesso baseado em identidade, monitoramento e resposta automatizada a incidentes.
 
-O projeto simula a operação de um serviço interno: somente usuários autorizados podem acessá-lo e, quando ele fica indisponível, um fluxo automatizado registra o incidente e acompanha sua recuperação.
+O projeto simula a operação de um serviço interno: somente usuários autorizados podem acessá-lo, e o Zabbix detecta indisponibilidade e falhas repetidas de autenticação. A automação persistente de incidentes será a entrega 04; ainda não está implementada.
 
-> **Status:** Fundação Local e Identidade concluídas em 25/10/2026. Monitoramento com Zabbix em implementação: PostgreSQL/server/frontend executando, **42 checks de infraestrutura aprovados**; cenário web e coleta de segurança ainda não configurados. Regressão antecipada **35 API + 10 estáticos + 12 verificações OIDC aprovados**. Próximo gate: troca da senha inicial do painel pela autora. n8n fica para a entrega 04, sem IA.
+> **Status:** Fundação, Identidade e Monitoramento concluídos. Entrega 03 aceita em 26/10/2026: disponibilidade e LOGIN_ERROR integrados, quatro widgets privados, retenções 24h/7d e persistência/falhas/regressão validadas. Token administrativo temporário revogado, sem dependência em runtime. n8n na entrega 04, ainda não iniciada e sem IA. Resultados e limites no [PLAN 03](docs/features/03-monitoring/PLAN.md) e na [matriz de evidências](docs/evidence/03-monitoring.md).
 
 ## Objetivo
 
@@ -42,7 +42,9 @@ flowchart TD
     browser[Navegador local] --> gateway[OAuth2 Proxy\nGateway de acesso]
     gateway <--> identity[Keycloak\nIdentidade e MFA]
     gateway --> api[API fictícia\nSem porta publicada no host]
-    monitor[Monitoramento · planejado] -.->|Verificação interna de saúde| api
+    monitor[Zabbix · queda e retorno validados] -->|Verificação interna de saúde| api
+    monitor -->|Agregado autenticado| collector[Coletor interno · validado]
+    collector -->|Leitura tecnica de eventos| identity
     monitor -.->|Eventos · desenho a revisar| automation[Tratamento de incidentes · planejado]
     automation -.-> incidents[Persistência de incidentes · planejada]
 ```
@@ -53,10 +55,10 @@ A Fundação Local usa `service` interna, sem volumes nem portas da API. O overl
 
 | Tecnologia | Responsabilidade |
 | --- | --- |
-| Node.js + TypeScript | Serviço fictício com página simples e endpoint de saúde |
+| Node.js + TypeScript | API fictícia e coletor interno agregado, sem framework adicional |
 | Keycloak | Gerenciar usuários, grupos e MFA com TOTP |
 | OAuth2 Proxy | Integrar autenticação OIDC e restringir o acesso à aplicação |
-| Zabbix + PostgreSQL | Monitoramento de disponibilidade e falhas repetidas de autenticação; em implementação |
+| Zabbix + PostgreSQL | Disponibilidade e falhas repetidas de autenticação validadas; configuração/histórico persistentes |
 | n8n | Automação futura na entrega 04; não implementada |
 | Docker Compose | Orquestrar serviços, redes e volumes locais |
 
@@ -116,7 +118,7 @@ A autenticação do webhook, a persistência e o tratamento de eventos repetidos
 | Repetição do evento de falha | Nenhum incidente aberto duplicado |
 | Retorno da API | Monitor detecta recuperação e automação encerra o incidente |
 
-Os cenários de identidade foram validados no escopo da entrega 02 (origem manual/automática e limites nas evidências). Os cenários de monitoramento/incidentes continuam metas, não resultados obtidos.
+Identidade e monitoramento foram validados nas entregas 02/03, com origem manual/automática e limites nas evidências. Abertura/deduplicação/encerramento persistente de incidentes pela automação ainda são metas da entrega 04; eventos do Zabbix não comprovam esse fluxo futuro.
 
 ## Segurança e limites
 
@@ -201,16 +203,27 @@ docker compose stop api
 
 A falha intermediária (`probe_failed`, código `1`) é esperada; antes e depois dela, o probe deve retornar `probe_succeeded`, código `0`. `--no-deps` impede que o teste negativo inicie serviços. O limite HTTP é de 2 segundos; o tempo total do comando inclui criar/remover o container.
 
-`up --wait` também retoma o container parado sem recriá-lo quando a configuração/imagem não mudou. `docker compose start api` é alternativa, mas não aguarda saúde: consulte o health check antes de testar. A última linha deixa a API parada; não remove container, imagem ou rede. Não há volumes nesta entrega. Não execute limpeza ampla ou `down -v`.
+`up --wait` retoma o container parado sem recriá-lo quando configuração/imagem não mudou. `docker compose start api` não aguarda saúde. O roteiro acima é o ensaio mínimo da Fundação e **a última linha deixa a API parada**; no laboratório com monitoramento, prefira o teste da entrega 03 abaixo, que a restaura. A API não tem volume, mas identidade/monitoramento têm dados persistentes. Não execute limpeza ampla ou `down -v`.
 
 Para inspecionar bindings, usuário efetivo, redes e logs de saúde, siga o [runbook da Fundação Local](docs/runbooks/local-foundation.md). Esse procedimento complementa o probe: sucesso interno não comprova ausência de publicação de portas. Os resultados medidos e os limites estão nas [evidências](docs/evidence/01-local-foundation.md).
 
+### Consultar o monitoramento implementado
+
+Painel: **http://localhost:8081/**, senha exclusiva do laboratório e acesso apenas em loopback. Com os sete serviços ativos, os seguintes checks não interrompem a API nem precisam do token administrativo temporário:
+
+```powershell
+./scripts/Test-MonitoringInfrastructure.ps1 -Runtime
+./scripts/Test-MonitoringCollector.ps1 -Runtime
+./scripts/Test-MonitoringAvailability.ps1
+```
+
+Para repetir dois ciclos autorizados apenas da API, `./scripts/Test-MonitoringAvailability.ps1 -RunFailureCycles` a restaura ao terminar. Cenários de segurança/falhas/persistência, pré-requisitos e efeitos estão no [runbook de monitoramento](docs/runbooks/monitoring.md); não executar todos indiscriminadamente nem recriar segredos para repetir testes. Nodata não monitora continuamente um Zabbix server parado, e alerta de LOGIN_ERROR é triagem, não prova de ataque.
+
 ## Próximos passos
 
-1. Implementar e validar a [entrega 03 — Zabbix](docs/features/03-monitoring/SPEC.md) pelo [PLAN](docs/features/03-monitoring/PLAN.md): disponibilidade primeiro, depois coleta restrita de eventos do Keycloak. Não iniciar n8n nesta entrega.
-   Infraestrutura já ativa em **http://localhost:8081/**; seguir o [runbook parcial](docs/runbooks/monitoring.md) para primeiro acesso seguro. [Evidências](docs/evidence/03-monitoring.md) distinguem infraestrutura de monitoramento funcional ainda pendente.
-2. Reproduzir a entrega 02 pelo [runbook](docs/runbooks/identity-access.md). Para os testes técnicos de tokens/cookies, executar `./scripts/Test-IdentityVerifier.ps1` com imagens locais disponíveis; não enviar segredos nem callbacks ao chat.
-3. Seguir para monitoramento, incidentes e demonstração integrada conforme o [roadmap](docs/roadmap.md), sem considerar a conclusão de identidade como conclusão do projeto inteiro.
+1. Especificar e revisar a entrega 04 — automação de incidentes: contrato real do Zabbix, autenticação, persistência/deduplicação, retries e eventos fora de ordem. Ainda não implementar n8n sem SPEC/PLAN aprovados.
+2. Reproduzir identidade/monitoramento pelos respectivos runbooks, preservando credenciais, TOTP, grupos e volumes. Não enviar segredos ou callbacks ao chat.
+3. Depois da automação, executar a demonstração integrada da entrega 05 conforme o [roadmap](docs/roadmap.md). Monitoramento concluído não significa projeto inteiro concluído.
 
 ## Resultado pretendido
 

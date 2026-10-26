@@ -1,6 +1,6 @@
 # Roadmap de implementação
 
-> Status: Fundação Local e Identidade concluídas. Monitoramento com Zabbix em implementação após aprovação explícita M-D01–M-D06 em 25/10/2026: disponibilidade primeiro, depois cenário de falhas de autenticação. Coleta ainda não implementada; n8n fica para entrega 04, sem IA. Nenhum critério 03 é presumido pela aprovação.
+> Status: Fundação Local, Identidade e Monitoramento concluídos. Entrega 03 aceita em 26/10/2026, MO-01–MO-10 verificados: disponibilidade/segurança, negativos, dois ciclos reais de autenticação, persistência, regressão e confirmação manual aprovados. Token temporário revogado e negativa confirmada. Entrega 04 não iniciada, sem IA.
 
 ## Como usar
 
@@ -29,7 +29,7 @@ A ordem é 01 → 02 → 03 → 04 → 05. Disponibilidade depende da fundação
 | --- | --- | --- |
 | 01 — Fundação local | Concluída | `features/01-local-foundation/{SPEC,PLAN}.md` |
 | 02 — Identidade e acesso | Concluída | [SPEC](features/02-identity-access/SPEC.md) / [PLAN](features/02-identity-access/PLAN.md) |
-| 03 — Monitoramento | Em implementação | [SPEC](features/03-monitoring/SPEC.md) / [PLAN](features/03-monitoring/PLAN.md) |
+| 03 — Monitoramento | Concluída | [SPEC](features/03-monitoring/SPEC.md) / [PLAN](features/03-monitoring/PLAN.md) |
 | 04 — Automação de incidentes | Não iniciada | `features/04-incident-automation/{SPEC,PLAN}.md` |
 | 05 — Validação integrada e demonstração | Não iniciada | Checklist transversal, runbook e evidências |
 
@@ -77,7 +77,7 @@ Critérios de saída:
 
 ## 03 — Monitoramento
 
-**Resultado esperado:** Zabbix detecta queda/recuperação da API e falhas repetidas de autenticação, sem confundir falha da coleta com ausência de erros.
+**Resultado verificado:** Zabbix detecta queda/recuperação da API e cinco LOGIN_ERROR em cinco minutos; falha da fonte/coletor não zera contagem nem recupera autenticação sem nova consulta válida. Evidências distinguem fixture, execução real e relato da autora.
 
 Escopo da especificação:
 
@@ -89,13 +89,13 @@ Escopo da especificação:
 
 Critérios de saída:
 
-- [ ] API saudável aparece disponível.
-- [ ] Parar somente a API provoca detecção de indisponibilidade.
-- [ ] Monitor e demais componentes necessários continuam executando.
-- [ ] Reiniciar a API provoca detecção de recuperação.
-- [ ] Configuração do monitor sobrevive a reinício sem exclusão do volume.
-- [ ] Tempos observados e limites da verificação interna estão documentados.
-- [ ] Regra de autenticação, falhas de coleta, persistência e regressão verificadas conforme MO-01–MO-10 da SPEC.
+- [x] API saudável aparece disponível.
+- [x] Parar somente a API provoca detecção de indisponibilidade.
+- [x] Monitor e demais componentes necessários continuam executando.
+- [x] Reiniciar a API provoca detecção de recuperação.
+- [x] Banco/server/frontend/coletor reiniciados e recriados com volume/snapshot selecionado preservados, quatro widgets, eventos/histórico e novas amostras; login real confirmado pela autora. Coletor reconstruiu janela não vazia sem duplicar/zerar.
+- [x] Tempos observados nos dois ciclos e limites da verificação interna documentados nas evidências 03.
+- [x] Regra real, falhas de coleta, persistência, regressão, documentação e sanitização aprovadas conforme MO-01–MO-10. Matriz final nas evidências 03, com origens e limites explícitos.
 
 ## 04 — Automação de incidentes
 

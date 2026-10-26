@@ -19,6 +19,19 @@ x-zabbix-db: &zabbix-db
   DEBUG_MODE: "false"
 
 services:
+  identity-event-collector:
+    <<: *monitoring-runtime
+    image: secureops-event-collector:0.1.0
+    build:
+      context: ./apps/identity-event-collector
+    profiles: [monitoring-security]
+    user: node
+    read_only: true
+    mem_limit: 128m
+    networks: [monitoring, identity]
+    secrets: [collector-client-secret, collector-metrics-secret, collector-realm-id]
+    # Sem dependencia do Keycloak: fonte indisponivel deve produzir falha de coleta.
+
   zabbix-db:
     <<: *monitoring-runtime
     image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
@@ -103,6 +116,10 @@ services:
       start_period: 15s
 
 networks:
+  # Mesmo desenho aprovado na identidade; nao inicia Keycloak no modo disponibilidade.
+  identity:
+    driver: bridge
+    internal: false
   monitoring:
     driver: bridge
     internal: true
@@ -114,6 +131,12 @@ volumes:
   zabbix-db-data:
 
 secrets:
+  collector-client-secret:
+    file: ./.local/monitoring/collector-client-secret
+  collector-metrics-secret:
+    file: ./.local/monitoring/collector-metrics-secret
+  collector-realm-id:
+    file: ./.local/monitoring/collector-realm-id
   monitoring-postgres-bootstrap:
     file: ./.local/monitoring/postgres-bootstrap-password
   monitoring-zabbix-db:

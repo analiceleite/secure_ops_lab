@@ -1,0 +1,75 @@
+{
+  "zabbix_export": {
+    "version": "7.0",
+    "host_groups": [
+      {
+        "uuid": "4cf6fded6047483da5e967eb4c193e07",
+        "name": "SecureOps Lab"
+      }
+    ],
+    "hosts": [
+      {
+        "host": "secureops-api",
+        "name": "secureops-api",
+        "description": "API ficticia do SecureOps Lab. Verificacao HTTP interna; nao comprova login, MFA ou autorizacao do gateway.",
+        "monitored_by": "SERVER",
+        "status": "ENABLED",
+        "groups": [{ "name": "SecureOps Lab" }],
+        "tags": [{ "tag": "service", "value": "secureops-api" }],
+        "httptests": [
+          {
+            "name": "api-health",
+            "delay": "20s",
+            "attempts": "1",
+            "status": "ENABLED",
+            "authentication": "NONE",
+            "steps": [
+              {
+                "name": "health",
+                "url": "http://api:3000/health",
+                "follow_redirects": "NO",
+                "retrieve_mode": "BODY",
+                "timeout": "5s",
+                "status_codes": "200"
+              }
+            ],
+            "tags": [
+              { "tag": "service", "value": "secureops-api" },
+              { "tag": "category", "value": "availability" }
+            ]
+          }
+        ]
+      }
+    ],
+    "triggers": [
+      {
+        "expression": "last(/secureops-api/web.test.fail[api-health])<>0",
+        "recovery_mode": "EXPRESSION",
+        "name": "SecureOps API: falha na verificacao HTTP interna",
+        "status": "ENABLED",
+        "priority": "AVERAGE",
+        "description": "Falha de conexao, timeout ou resposta diferente de HTTP 200. Recupera somente com nova execucao bem-sucedida do cenario; ausencia de dados tem alerta separado.",
+        "type": "SINGLE",
+        "manual_close": "NO",
+        "tags": [
+          { "tag": "service", "value": "secureops-api" },
+          { "tag": "category", "value": "availability" }
+        ]
+      },
+      {
+        "expression": "nodata(/secureops-api/web.test.fail[api-health],90s)=1",
+        "recovery_mode": "EXPRESSION",
+        "name": "SecureOps API: verificacao HTTP sem dados recentes",
+        "status": "ENABLED",
+        "priority": "WARNING",
+        "description": "Sem resultado do cenario por 90 segundos. Nao significa API saudavel nem determina causa da perda de observacao. Se o proprio Zabbix server parar, so pode avaliar apos retomar.",
+        "type": "SINGLE",
+        "manual_close": "NO",
+        "tags": [
+          { "tag": "service", "value": "secureops-api" },
+          { "tag": "category", "value": "collection" }
+        ]
+      }
+    ]
+  }
+}
