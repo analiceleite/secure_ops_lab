@@ -52,12 +52,12 @@
 
 ### T04 — Modelo transacional e consulta read-only
 
-- [ ] Escrever migração versionada só do banco de incidentes; ledger, correlações/pendências e incidentes conforme SPEC; constraints de identidade e único open por condição.
-- [ ] Implementar rotina transacional parametrizada, lock que cubra primeira linha da condição, validação defensiva do mapeamento/horários e permissões mínimas; testar rollback completo.
-- [ ] Testar diretamente no banco todas as transições e pelo menos 20 chamadas concorrentes do mesmo evento, duas condições collection e ciclos distintos.
+- [x] Escrever migração 001 restrita ao banco incidents: ledger/ciclos/incidentes, identidade e índice parcial de único open; execução atômica e recusa de reaplicação testadas em cluster efêmero. **Não aplicada ao banco ativo**; allowlist real ainda pendente.
+- [x] Rotina parametrizada incident.ingest(text), validação raw JSON/duplicatas/mapeamento/horários, lock na condição pré-provisionada antes do primeiro ciclo, permissões mínimas e rollback de fechamento+ledger+job verificados isoladamente. Gate de deadline/query/HTTP n8n ainda pendente.
+- [x] Transições da SPEC testadas diretamente em PostgreSQL 17.11 efêmero: duas collection independentes, órfãs/inversões/ciclos antigos/novos e 20 chamadas realmente bloqueadas simultaneamente (1 applied/19 duplicate); dois ciclos concorrentes (1 applied/1 conflict) e timeout de lock sem escrita. Não substitui concorrência via workflow.
 - [ ] Conferir SELECT/EXECUTE necessários e negação de DDL/DML direto/acesso aos bancos alheios; validar owner/search_path se houver função privilegiada.
-- [ ] Criar consulta local repetível read-only com incidentes, duração e pendências, sem SQL arbitrário via webhook ou banco publicado no host.
-- [ ] Incluir job único de relatório na transação de encerramento, snapshot sanitizado, rotinas de lease/compare-and-set, saída/HTML/outbox persistentes e papel restrito separado. Não manter transação aberta durante IA/SMTP ou dar ao relatório permissão de alterar incidentes.
+- [ ] Disponibilizar consulta no banco ativo; views incident_summary/pending_recoveries/delivery_summary/report_job_summary já criadas e exercitadas sob papel read-only **somente na fixture**, sem porta ou SQL arbitrário via webhook.
+- [ ] Completar jobs: reserva única/snapshot sanitizado já criados no mesmo commit de encerramento e testados isoladamente; lease/compare-and-set, saída/HTML/outbox e rotinas do papel de relatório ainda pendentes. Papel report não pode executar ingest nem mudar incidentes. Não manter transação aberta durante IA/SMTP.
 
 **Validação:** parte de IA-03/IA-05/IA-06; sucesso SQL isolado ainda não é integração n8n/Zabbix.
 
@@ -135,8 +135,8 @@
 | Caminho candidato | Finalidade |
 | --- | --- |
 | `compose.automation.yaml` | Implementado: n8n, automation-db, Ollama/Mailpit, redes/volumes/secrets; ainda sem conexão do server Zabbix |
-| `infra/automation/` | Implementado: bootstrap, imagens não root, lock/verificador/testes do modelo e smoke dos serviços. Migrações de incidentes/workflows/prompt produtivo/HTML ainda futuros |
-| `scripts/` | Initialize-Automation, Install-AutomationModel e Test-AutomationInfrastructure/Services/Database/ModelIntegrity executados; testes de integração futuros |
+| `infra/automation/` | Bootstrap, imagens não root, integridade/smokes e migração 001 de incidentes testada em fixture; ainda sem aplicar ao banco ativo. Workflows/lease/outbox/prompt produtivo/HTML pendentes |
+| `scripts/` | Provisionamento e testes de infraestrutura/modelo/banco, mais Test-AutomationIncidents isolado; testes ponta a ponta ainda futuros |
 | `.local/automation/` | Criado e ignorado, ACL restrita, sem sobrescrever segredos existentes |
 | `docs/runbooks/incident-automation.md` | Parcial: instalação e testes iniciais exercitados |
 | `docs/evidence/04-incident-automation.md` | Evidências iniciais, sem afirmar IA-01–IA-14 concluídos |
@@ -155,6 +155,7 @@ Nomes definitivos, versões e formato de export dependem do gate; não criar arq
 | 26/10/2026 | Aprovação funcional da autora | “aceito o fluxo proposto”: Zabbix → n8n → incidentes → IA local → HTML → SMTP local. Fluxo aprovado; versões/modelo/recursos/frequência/transporte e autorização executável continuam pendentes, sem presumir validação ou implementação |
 | 26/10/2026, após solicitação executável | Início autorizado e seleção técnica | Autora delegou versão/modelo e pediu implementação. Versões/digests na SPEC; infraestrutura/segredos novos, owner manual, seis testes de integridade e 66 checks de infraestrutura, modelo sintético real e SMTP fictício aprovados. Sete serviços existentes preservados; nenhuma action/workflow/credencial administrativa Zabbix reutilizada |
 | 26/10/2026, 12:39 -03:00 | Revisão do incremento | Sintaxe 6 PowerShell/2 Bash/3 JS, 99 destinos locais, whitespace e recusa de sobrescrita aprovados; varredura limitada de 108 arquivos e 691 linhas de logs novos sem correspondências selecionadas. Integração de incidentes/relatórios e IA-01–IA-14 permanecem pendentes |
+| 26/10/2026, incremento SQL isolado | Núcleo transacional e parser raw | Migração 001 e harness Test-AutomationIncidents: **86 checks SQL**, concorrência de 20 duplicatas/2 primeiros ciclos, timeout de lock e recusa de reaplicação aprovados em PostgreSQL efêmero sem rede/volume persistente. Onze serviços preservados; regressões de infraestrutura/banco/interfaces/coletor/disponibilidade aprovadas. Banco ativo e Zabbix sem alteração. Leitura do rawBody da tag n8n é evidência estática, não gate de webhook concluído |
 
 ## 5. Checklist de prontidão
 
@@ -165,4 +166,4 @@ Nomes definitivos, versões e formato de export dependem do gate; não criar arq
 - [ ] Contrato problem/recovery observado e sanitizado; mapeamento/IDs reais resolvidos.
 - [x] Autorização explícita posterior para início de implementação e escolha de versão/modelo.
 
-**Próxima ação:** completar gate de contrato/parser e implementar/testar transação de incidentes isoladamente; depois workflows/receptor e action Zabbix com acesso temporário novo se necessário. Sessão manual e aceites integrados continuam pendentes. Entrega **em implementação**, não concluída; novos desvios de comportamento/segurança/escopo voltam à autora.
+**Próxima ação:** testar transporte/raw body/Header Auth/erros e persistência de execuções em workflow protegido; completar rotinas de jobs/outbox, conferir contrato real e provisionar IDs antes de aplicar a migração ao banco ativo. Action Zabbix exige acesso temporário novo quando necessário. Sessão manual e aceites integrados pendentes. Entrega **em implementação**, não concluída; novos desvios de comportamento/segurança/escopo voltam à autora.

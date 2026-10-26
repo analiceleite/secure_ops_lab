@@ -78,3 +78,40 @@ Sem token administrativo Zabbix reutilizado, sem alterações em senha/TOTP/grup
 Sintaxe de seis scripts PowerShell, dois Bash e três módulos JS aprovada; 99 destinos de links Markdown locais existentes e git diff --check aprovado (âncoras/URLs externas não verificadas por essa checagem). Inicializador recusou pasta existente sem reset. Nova comparação dos sete serviços originais confirmou IDs/start times e running preservados.
 
 Varredura em memória de **108 arquivos versionados/versionáveis** e **691 linhas de logs dos quatro serviços novos** sem correspondência aos segredos locais selecionados de automação/monitoramento/client do gateway. Padrões selecionados de chaves privadas/JWT também verificados nos arquivos; `.local` excluída do Git. Nenhum log bruto exportado. Varredura limitada: não é garantia universal de ausência de dados sensíveis, teste de egress ou auditoria de dependências.
+
+## 7. Incremento seguinte — núcleo SQL isolado, 26/10/2026
+
+Após a autora solicitar continuidade da implementação, criada `infra/automation/migrations/001-incidents.sql`: allowlist administrativa, ledger canônico, correlações/ciclos, identidade local de incidentes, índice parcial de aberto único, views read-only e rotina parametrizada `incident.ingest(text)`. Fechamento cria reserva única de job com snapshot sanitizado no mesmo commit; **lease, processamento, HTML e outbox ainda não implementados**.
+
+**Migração não aplicada ao automation-db ativo**, sem provisionar IDs reais, alterar Zabbix ou publicar workflow. A validação usa PostgreSQL 17.11 efêmero, network none, TCP listener desabilitado, sem portas/volumes persistentes/mounts de segredos do lab, UID 999, caps removidas, no-new-privileges e rootfs read-only. Dados/socket/tmp em tmpfs; bootstrap aleatório descartável usado somente pela fixture. Cada execução remove somente seu container exclusivo no finally, sem exclusão de volumes ou dados existentes.
+
+Execução final de `./scripts/Test-AutomationIncidents.ps1`, exit 0:
+
+| Ensaio real de banco, com eventos fictícios | Resultado |
+| --- | --- |
+| Contrato, transições, estado e privilégios | **86 verificações SQL aprovadas** |
+| Vinte entregas idênticas concorrentes | 20 conexões observadas simultaneamente bloqueadas; **1 applied, 19 duplicate, 1 entrega/1 incidente** |
+| Dois primeiros ciclos da mesma condição | 2 chamadas observadas simultaneamente bloqueadas; **1 applied, 1 conflict**, somente 1 entrega/1 incidente |
+| Timeout de lock | SQLSTATE **55P03**, sem resultado positivo, sem ledger/ciclo parcial; limite interno 4s e statement timeout 5s do cliente de teste |
+| Reaplicação da migração | Recusada, com rollback/ledger preservado; sem DROP/overwrite |
+| Preservação | **11 serviços existentes** com ID/start time/running iguais antes/depois |
+
+Os negativos cobrem JSON inválido/array/null, campos ausentes/extras/duplicados (inclusive chave escapada), tipos, macros, ID decimal acima do limite/zero/leading zero, ID de 20 dígitos sem arredondamento, instância/trigger/condição/categoria/host/serviço/tipo incorretos, tempo futuro/velho/malformado, injeção SQL e Unicode nulo. Corpo JSON válido com espaços até **4096 bytes** é aceito como duplicata canônica; com 4097 bytes é rejeitado. Para rejeições/duplicatas, o teste compara **todo o conteúdo** de allowlist/ledger/ciclos/incidentes/jobs antes/depois, não só contagens.
+
+Transições testadas: abertura/fechamento/duração, repetição após fechamento sem reabertura, conflito de conteúdo/trigger, novo ciclo bloqueado e retry após fechar o anterior, recovery órfã/duplicada/conflitante, problema atrasado já closed e out_of_order, duração negativa negada, conclusão de ciclo antigo preservando o novo aberto, duas collection e autenticação independentes. Snapshot do job não muda com eventos posteriores. Falha forçada **depois** do fechamento e da criação do job reverte ledger/ciclo/job integralmente; índice parcial também rejeita diretamente segundo open.
+
+Testes com SET ROLE verificaram ingest EXECUTE permitido e SELECT/DML/DDL de tabelas negados; leitor acessa views mas não chama ingest/escreve; relatório não pode mudar incidentes/chamar ingest; metadados n8n não têm EXECUTE da função privilegiada. Isso não substitui o teste de credenciais/query parameters de um workflow real.
+
+Regressões reexecutadas: **66 checks de infraestrutura**, isolamento do banco ativo, interfaces/readiness/negações, coletor runtime (qualidade 1, contagem 0, negativa 401) e disponibilidade com amostras saudáveis HTTP200 aprovados. Não reexecutada toda a suíte 01–03 nem navegador autenticado. Sintaxe do novo PowerShell/Bash e whitespace aprovados.
+
+### Parser n8n: análise estática, não teste integrado
+
+Leitura do código oficial **da tag 2.44.7** confirmou opção rawBody do Webhook, cópia base64 em binary.data e parser com teto de transporte em MiB. Caminho candidato: raw body original → parâmetro Postgres → decodificação UTF-8 → ingest(text). Reconstituir a partir de `$json.body` perderia a prova de chaves duplicadas e não foi adotado. A função SQL usa json antes de jsonb para detectar essas duplicatas. Fontes: [Webhook.node.ts](https://github.com/n8n-io/n8n/blob/n8n%402.44.7/packages/nodes-base/nodes/Webhook/Webhook.node.ts) e [body-parser.ts](https://github.com/n8n-io/n8n/blob/n8n%402.44.7/packages/cli/src/middlewares/body-parser.ts).
+
+**Pendente:** provar raw body/Header Auth/malformed JSON/tamanhos/HTTP/ACK/deadlines no runtime n8n, verificar execuções sem headers/bodies persistidos, capturar macros reais e provisionar mapeamento. Não habilitado Code node, community package, proxy ou serviço novo. Transporte atual 1 MiB e limite lógico SQL 4 KiB são distintos; não afirmar rejeição HTTP 413 em 4 KiB.
+
+### Ajustes do harness e limites
+
+Primeira inicialização da fixture falhou porque a imagem exige senha bootstrap mesmo com host rejeitado; adicionada senha efêmera aleatória exclusiva, sem usar segredo do lab ou mudar autenticação do banco ativo. Outra tentativa falhou no quoting PowerShell 5.1 do probe; corrigido sem relaxar privilégios. Containers próprios dessas tentativas foram removidos no finally. Suítes posteriores passaram; essas falhas não são resultados de integração n8n/Zabbix.
+
+IA-01–IA-14 continuam sem aceite completo: dados deste ensaio são fictícios e descartados com a fixture; não há incidente real persistido ou relatório integrado. Próxima etapa: gate do receptor n8n e jobs/outbox, antes de instalação/mapeamento/action no ambiente ativo. Sem commit/push automático.

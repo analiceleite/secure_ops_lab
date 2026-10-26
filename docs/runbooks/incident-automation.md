@@ -83,3 +83,17 @@ docker compose -f compose.yaml -f compose.identity.yaml -f compose.monitoring.ya
 ```
 
 Isso não remove dados nem para os serviços das entregas anteriores. Não usar down -v/limpeza ampla. O fluxo de incidentes/relatórios ainda será implementado; não anunciar coleta automática/e-mail de IA enquanto há apenas serviços ativos e smokes independentes.
+
+## 6. Núcleo de incidentes — validação isolada, sem instalar no banco ativo
+
+```powershell
+./scripts/Test-AutomationIncidents.ps1
+```
+
+O harness reutiliza a imagem PostgreSQL 17.11 já fixada/disponível (`--pull never`) em container com nome exclusivo: UID 999, sem rede, portas, volumes persistentes ou segredos do laboratório, rootfs read-only e dados em tmpfs. Uma senha bootstrap aleatória e descartável existe apenas nessa fixture; conexões dos testes usam socket local com peer, e o listener TCP é desabilitado. Não é substituição das credenciais do banco ativo. Ao finalizar, remove somente o container que criou; não executa limpeza ampla.
+
+Aplica setup fictício + migração 001 **na fixture**, testa contrato/transições/permissões/rollback, 20 duplicatas concorrentes, dois primeiros ciclos em disputa, timeout de lock e recusa de reaplicar a migração. Confere ID/start time/running dos serviços existentes antes/depois. O teste consome temporariamente até 256 MiB/2 CPUs mais tmpfs; não é inferência/SMTP ou teste de carga do n8n. Resultado esperado: `$LASTEXITCODE` 0, checks SQL aprovados, uma aplicação/19 duplicatas, um ciclo aplicado/um conflitante e timeout sem ledger/ciclo gravado.
+
+`infra/automation/tests/` contém somente fixtures; **não executar esses SQL/Bash no automation-db ativo**. `infra/automation/migrations/001-incidents.sql` ainda não foi instalada ali. Não copiar IDs fictícios para a allowlist real. A migração recusa banco diferente de incidents e reaplicação, e não apaga dados; a aplicação ao ambiente ativo só deve ocorrer depois do gate do receptor/contrato/mapeamento. Nenhum incidente/job deste ensaio fica persistido ao remover a fixture.
+
+Próximos gates: raw body/credencial Header Auth e erros reais do n8n, não salvamento de headers/bodies, macros reais/mapeamento Zabbix e jobs com lease/outbox. O suporte a rawBody visto no código da tag é uma pista de implementação sem Code node, não prova de funcionamento do workflow.
