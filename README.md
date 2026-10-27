@@ -1,10 +1,18 @@
 # SecureOps Lab
 
-**Um laboratório local que conecta acesso por identidade, monitoramento, incidentes persistentes e relatórios com IA.**
+**Controle de acesso, monitoramento e automação de incidentes — em um laboratório local de segurança e operações.**
 
-O SecureOps Lab simula a operação de uma aplicação interna fictícia. Uma pessoa precisa se autenticar com MFA e pertencer ao grupo autorizado para acessá-la. Em paralelo, o Zabbix acompanha disponibilidade e falhas de login; eventos do monitor alimentam uma automação que registra incidentes, correlaciona recuperações e gera relatórios HTML com IA local, enviados para uma caixa de e-mail de teste.
+O SecureOps Lab demonstra como **proteger uma aplicação com MFA**, **detectar falhas com Zabbix** e **transformar eventos em incidentes persistentes e relatórios com IA local**. Tudo roda em Docker, com contas e dados fictícios, sem exposição pública ou serviços pagos obrigatórios.
 
-O objetivo é aprender e demonstrar conceitos de operações e segurança com decisões técnicas explicáveis, sem contratar serviços, usar dados de empresas ou expor o laboratório na internet.
+## Como o fluxo funciona
+
+[![Fluxo completo do SecureOps Lab: acesso por identidade com MFA, monitoramento independente com Zabbix e automação de incidentes com PostgreSQL, n8n, Ollama e Mailpit.](docs/diagrams/secureops-flow.svg)](docs/diagrams/secureops-flow.svg)
+
+*Clique no diagrama para ampliar. Os blocos agrupam responsabilidades, não redes Docker; a imagem não representa o estado dos containers em tempo real.*
+
+| Proteger o acesso | Observar o serviço | Registrar e comunicar |
+| --- | --- | --- |
+| Keycloak + OAuth2 Proxy: identidade, MFA e autorização por grupo | Zabbix + coletor: disponibilidade, falhas de login e qualidade da coleta | PostgreSQL + n8n + Ollama + Mailpit: incidentes, análise local e relatórios HTML |
 
 > **Estado do projeto:** identidade e monitoramento validados; fluxo mínimo de incidentes → IA → HTML → SMTP local demonstrado de ponta a ponta. É uma **prova de conceito educacional**, não uma solução de produção. A IA apresentou afirmações causais sem evidência em alguns ensaios; seus textos exigem revisão humana. O aceite completo da automação permanece parcial: [resultados e pendências](docs/evidence/04-acceptance-matrix.md).
 
@@ -27,48 +35,7 @@ Imagine um serviço interno utilizado por uma equipe de operações:
 
 **Autenticação responde “quem é você?”; autorização responde “você pode acessar?”. Monitoramento e automação observam o serviço por caminhos independentes do login.**
 
-## Como o fluxo funciona
-
-```mermaid
-flowchart TB
-    user["Navegador local<br/>Contas fictícias"]
-
-    subgraph access["1 · Acesso por identidade"]
-        gateway["OAuth2 Proxy<br/>Validação de sessão e grupo"]
-        keycloak["Keycloak<br/>Senha + MFA com TOTP"]
-        api["API Node.js + TypeScript<br/>Sem porta publicada no host"]
-        gateway <-->|OIDC| keycloak
-        gateway -->|Somente grupo autorizado| api
-    end
-
-    subgraph monitoring["2 · Monitoramento independente"]
-        zabbix["Zabbix<br/>Disponibilidade e regras de alerta"]
-        collector["Coletor TypeScript<br/>Falhas de login agregadas + qualidade"]
-        monitorDb[("PostgreSQL do Zabbix")]
-        zabbix -->|SQL| monitorDb
-        zabbix -->|Consulta autenticada| collector
-    end
-
-    subgraph automation["3 · Incidentes e relatórios locais"]
-        receiver["Receptor TypeScript<br/>Autenticação e validação do webhook"]
-        incidentDb[("PostgreSQL da automação<br/>Incidentes, jobs e outbox")]
-        n8n["n8n<br/>Geração e entrega de relatórios"]
-        ollama["Ollama + Qwen2.5<br/>Inferência local"]
-        mailpit["Mailpit<br/>SMTP e caixa de teste"]
-        receiver -->|Transação antes da confirmação| incidentDb
-        n8n <-->|Reserva jobs e persiste resultados| incidentDb
-        n8n -->|Snapshot sanitizado| ollama
-        n8n -->|Relatório HTML + texto| mailpit
-    end
-
-    user -->|Acesso à aplicação| gateway
-    user -->|Login + MFA| keycloak
-    zabbix -->|GET /health pela rede interna| api
-    collector -->|Leitura técnica de eventos| keycloak
-    zabbix -->|Problema e recuperação| receiver
-```
-
-### Do evento ao relatório
+## Do evento ao relatório
 
 1. **O Zabbix detecta o evento.** Além do teste HTTP interno, acompanha falhas repetidas de autenticação e problemas na qualidade da coleta. Falta de dados não é tratada como zero falhas.
 2. **Uma action restrita envia o webhook.** Apenas as condições aprovadas do laboratório participam; não há comandos de correção automática.
@@ -78,7 +45,7 @@ flowchart TB
 6. **Um template fixo monta o HTML.** Os fatos vêm do banco e as strings são escapadas. O envio é registrado em uma **outbox**, uma fila persistente de mensagens.
 7. **O Mailpit recebe o e-mail local.** É uma caixa fictícia de teste, não um serviço de envio para endereços pessoais ou externos.
 
-O diagrama representa a arquitetura, não o estado dos containers em tempo real. Para redes, fronteiras e decisões detalhadas, consulte a [arquitetura](docs/architecture.md).
+Para redes, fronteiras e decisões detalhadas, consulte a [arquitetura](docs/architecture.md).
 
 ## Tecnologias e responsabilidades
 

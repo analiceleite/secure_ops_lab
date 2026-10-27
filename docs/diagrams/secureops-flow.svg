@@ -1,0 +1,169 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1380" viewBox="0 0 1440 1380" role="img" aria-labelledby="title description">
+  <title id="title">SecureOps Lab — como o fluxo funciona</title>
+  <desc id="description">Diagrama conceitual em três etapas. O navegador acessa a API pelo OAuth2 Proxy, com identidade e MFA no Keycloak. O Zabbix consulta a saúde da API, um coletor de eventos de identidade e seu próprio PostgreSQL. Problema e recuperação seguem para um receptor TypeScript que confirma depois do commit no banco da automação. O n8n reserva jobs, usa Ollama com dados sanitizados e envia relatórios HTML e texto ao Mailpit local.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9 Z" fill="#52667c"/>
+    </marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #172d45; }
+      .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 2px; fill: #587086; }
+      .title { font-size: 36px; font-weight: 700; letter-spacing: -1px; }
+      .subtitle { font-size: 17px; fill: #52667c; }
+      .section { font-size: 23px; font-weight: 700; }
+      .section-note { font-size: 15px; fill: #52667c; }
+      .number { font-size: 16px; font-weight: 700; fill: #fff; text-anchor: middle; }
+      .node { fill: #fff; stroke: #9cb2cc; stroke-width: 1.5; }
+      .monitor-node { fill: #fff; stroke: #83aaa3; stroke-width: 1.5; }
+      .automation-node { fill: #fff; stroke: #bca37d; stroke-width: 1.5; }
+      .node-title { font-size: 21px; font-weight: 700; text-anchor: middle; }
+      .node-note { font-size: 15px; fill: #52667c; text-anchor: middle; }
+      .edge { fill: none; stroke: #52667c; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; marker-end: url(#arrow); }
+      .bidirectional { marker-start: url(#arrow); }
+      .label { font-size: 14px; fill: #3b526a; text-anchor: middle; paint-order: stroke; stroke: #f8fafc; stroke-width: 6px; stroke-linejoin: round; }
+      .footer { font-size: 15px; fill: #52667c; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="1380" fill="#f8fafc"/>
+  <text x="40" y="40" class="eyebrow">SECUREOPS LAB / ARQUITETURA CONCEITUAL</text>
+  <text x="40" y="84" class="title">Como o fluxo funciona</text>
+  <text x="40" y="111" class="subtitle">Da identidade ao incidente persistente e ao relatório com IA local.</text>
+  <rect x="1170" y="51" width="230" height="38" rx="19" fill="#e5edf5"/>
+  <text x="1285" y="76" class="node-note" style="font-weight:700">LOCAL · DADOS FICTÍCIOS</text>
+
+  <!-- Os blocos agrupam responsabilidades, não redes Docker. -->
+  <rect x="40" y="140" width="1360" height="320" rx="18" fill="#edf3fc" stroke="#cfddf0"/>
+  <rect x="40" y="500" width="1360" height="280" rx="18" fill="#edf7f4" stroke="#ccdfd9"/>
+  <rect x="40" y="830" width="1360" height="450" rx="18" fill="#fbf5e9" stroke="#e6dac3"/>
+
+  <circle cx="85" cy="175" r="17" fill="#315f9f"/>
+  <text x="85" y="181" class="number">1</text>
+  <text x="115" y="183" class="section">Acesso por identidade</text>
+  <text x="1370" y="181" class="section-note" text-anchor="end">Autenticar não é autorizar.</text>
+
+  <circle cx="85" cy="535" r="17" fill="#257568"/>
+  <text x="85" y="541" class="number">2</text>
+  <text x="115" y="543" class="section">Monitoramento independente</text>
+  <text x="1370" y="541" class="section-note" text-anchor="end">A falha da API não para o monitor.</text>
+
+  <circle cx="85" cy="870" r="17" fill="#89652e"/>
+  <text x="85" y="876" class="number">3</text>
+  <text x="115" y="878" class="section">Incidentes e relatórios locais</text>
+  <text x="1370" y="876" class="section-note" text-anchor="end">Registro transacional; relatório assíncrono.</text>
+  <text x="115" y="910" class="section-note">Webhook validado → incidente e recuperação correlacionados → job → IA → HTML → caixa de teste</text>
+
+  <!-- Conexões: mesmas relações do Mermaid do README. -->
+  <g aria-label="Fluxos de acesso">
+    <path class="edge" d="M350 272 H500"/>
+    <text x="425" y="257" class="label">Aplicação</text>
+    <path class="edge" d="M220 230 V207 H1150 V230"/>
+    <text x="680" y="204" class="label">Login + MFA</text>
+    <path class="edge bidirectional" d="M780 272 H1000"/>
+    <text x="890" y="257" class="label">OIDC</text>
+    <path class="edge" d="M640 314 V370"/>
+    <text x="750" y="346" class="label">Somente grupo autorizado</text>
+  </g>
+
+  <g aria-label="Fluxos de monitoramento">
+    <path class="edge" d="M370 612 H435 V403 H500"/>
+    <text x="435" y="482" class="label">GET /health · rede interna</text>
+    <path class="edge" d="M370 633 H500"/>
+    <text x="435" y="622" class="label">Autenticado</text>
+    <path class="edge" d="M800 633 H900 V346 H1150 V314"/>
+    <text x="1060" y="337" class="label">Leitura técnica de eventos</text>
+    <path class="edge" d="M325 676 V737 H1150 V676"/>
+    <text x="730" y="725" class="label">SQL · configuração, histórico e eventos</text>
+  </g>
+
+  <g aria-label="Fluxos de incidentes e relatórios">
+    <path class="edge" d="M90 633 H60 V1015 H90"/>
+    <text x="24" y="820" class="label" transform="rotate(-90 24 820)">Webhook · problema e recuperação</text>
+    <path class="edge" d="M370 1015 H500"/>
+    <text x="435" y="985" class="label">Transação</text>
+    <text x="435" y="1003" class="label">antes do ACK</text>
+    <path class="edge bidirectional" d="M800 1015 H1000"/>
+    <text x="900" y="984" class="label">Reserva jobs</text>
+    <text x="900" y="1003" class="label">e persiste resultados</text>
+    <path class="edge" d="M1080 1060 V1100 H850 V1150"/>
+    <text x="940" y="1085" class="label">Snapshot sanitizado</text>
+    <path class="edge" d="M1210 1060 V1150"/>
+    <text x="1210" y="1122" class="label">Relatório HTML + texto</text>
+  </g>
+
+  <!-- Etapa 1 -->
+  <g aria-label="Navegador local, contas fictícias">
+    <rect x="90" y="230" width="260" height="84" rx="12" class="node"/>
+    <text x="220" y="265" class="node-title">Navegador local</text>
+    <text x="220" y="292" class="node-note">Contas fictícias</text>
+  </g>
+  <g aria-label="OAuth2 Proxy, validação de sessão e grupo">
+    <rect x="500" y="230" width="280" height="84" rx="12" class="node"/>
+    <text x="640" y="265" class="node-title">OAuth2 Proxy</text>
+    <text x="640" y="292" class="node-note">Validação de sessão e grupo</text>
+  </g>
+  <g aria-label="Keycloak, senha e MFA com TOTP">
+    <rect x="1000" y="230" width="300" height="84" rx="12" class="node"/>
+    <text x="1150" y="265" class="node-title">Keycloak</text>
+    <text x="1150" y="292" class="node-note">Senha + MFA com TOTP</text>
+  </g>
+  <g aria-label="API Node.js e TypeScript, sem porta publicada no host">
+    <rect x="500" y="370" width="280" height="66" rx="12" class="node"/>
+    <text x="640" y="398" class="node-title">API Node.js + TypeScript</text>
+    <text x="640" y="422" class="node-note">Sem porta publicada no host</text>
+  </g>
+
+  <!-- Etapa 2 -->
+  <g aria-label="Zabbix, disponibilidade e regras de alerta">
+    <rect x="90" y="590" width="280" height="86" rx="12" class="monitor-node"/>
+    <text x="230" y="625" class="node-title">Zabbix</text>
+    <text x="230" y="652" class="node-note">Disponibilidade e regras de alerta</text>
+  </g>
+  <g aria-label="Coletor TypeScript, falhas de login agregadas e qualidade da coleta">
+    <rect x="500" y="590" width="300" height="86" rx="12" class="monitor-node"/>
+    <text x="650" y="619" class="node-title">Coletor TypeScript</text>
+    <text x="650" y="643" class="node-note">Falhas de login agregadas</text>
+    <text x="650" y="664" class="node-note">+ qualidade da coleta</text>
+  </g>
+  <g aria-label="PostgreSQL do Zabbix">
+    <path d="M1000 607 C1000 585 1300 585 1300 607 V660 C1300 682 1000 682 1000 660 Z" class="monitor-node"/>
+    <path d="M1000 607 C1000 629 1300 629 1300 607" fill="none" stroke="#83aaa3" stroke-width="1.5"/>
+    <text x="1150" y="650" class="node-title">PostgreSQL do Zabbix</text>
+  </g>
+
+  <!-- Etapa 3 -->
+  <g aria-label="Receptor TypeScript, autenticação e validação do webhook">
+    <rect x="90" y="970" width="280" height="90" rx="12" class="automation-node"/>
+    <text x="230" y="1000" class="node-title">Receptor TypeScript</text>
+    <text x="230" y="1025" class="node-note">Autenticação e validação</text>
+    <text x="230" y="1046" class="node-note">do webhook</text>
+  </g>
+  <g aria-label="PostgreSQL da automação, incidentes, jobs e outbox">
+    <path d="M500 987 C500 965 800 965 800 987 V1044 C800 1066 500 1066 500 1044 Z" class="automation-node"/>
+    <path d="M500 987 C500 1009 800 1009 800 987" fill="none" stroke="#bca37d" stroke-width="1.5"/>
+    <text x="650" y="1025" class="node-title">PostgreSQL da automação</text>
+    <text x="650" y="1048" class="node-note">Incidentes, jobs e outbox</text>
+  </g>
+  <g aria-label="n8n, geração e entrega de relatórios">
+    <rect x="1000" y="970" width="300" height="90" rx="12" class="automation-node"/>
+    <text x="1150" y="1008" class="node-title">n8n</text>
+    <text x="1150" y="1035" class="node-note">Geração e entrega de relatórios</text>
+  </g>
+  <g aria-label="Ollama e Qwen2.5, inferência local">
+    <rect x="700" y="1150" width="300" height="84" rx="12" class="automation-node"/>
+    <text x="850" y="1185" class="node-title">Ollama + Qwen2.5</text>
+    <text x="850" y="1212" class="node-note">Inferência local</text>
+  </g>
+  <g aria-label="Mailpit, SMTP e caixa de teste">
+    <rect x="1060" y="1150" width="300" height="84" rx="12" class="automation-node"/>
+    <text x="1210" y="1185" class="node-title">Mailpit</text>
+    <text x="1210" y="1212" class="node-note">SMTP e caixa de teste</text>
+  </g>
+  <text x="90" y="1179" class="section-note">IA não decide o estado do incidente.</text>
+  <text x="90" y="1204" class="section-note">Sem ações corretivas automáticas.</text>
+  <text x="90" y="1229" class="section-note">Conteúdo sujeito a revisão humana.</text>
+
+  <path d="M40 1312 H1400" stroke="#d5dee7"/>
+  <text x="40" y="1340" class="footer">Agrupamentos por responsabilidade, não por rede. O diagrama não indica o estado dos containers em tempo real.</text>
+  <text x="40" y="1366" class="footer">Modelo baseado na seção “Como o fluxo funciona” do README · sem scripts, fontes remotas ou dependências externas.</text>
+</svg>
